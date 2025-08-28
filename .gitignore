@@ -1,2 +1,5 @@
 Data/**
 !Data/.gitkeep
+
+# Sensitive vault files
+ofb-vault-*.json
