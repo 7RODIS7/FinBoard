@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Смягчённый CSP для работы через file:// -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' blob: data: file:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-src 'none'">
+  <title>Офлайн дашборд финансов</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script src="assets/help.js"></script>
+  <script src="assets/xml.js"></script>
+  <script src="assets/charts.js"></script>
+  <script src="assets/app.js"></script>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Финансовый дашборд</h1>
+    <span class="tag" id="vaultTag">локально</span>
+    <span class="right"></span>
+    <a class="btn" href="help.html">Справка</a>
+    <button id="btnLock" class="btn" style="display:none">Заблокировать</button>
+  </header>
+
+  <aside class="side" id="side"></aside>
+  <main class="content" id="main"></main>
+</div>
+
+<script>
+// ===== УТИЛИТЫ =====
+const $ = (sel,root=document)=>root.querySelector(sel)
+const $$ = (sel,root=document)=>Array.from(root.querySelectorAll(sel))
+const fmt = new Intl.NumberFormat('ru-RU',{style:'currency',currency:'BGN',maximumFractionDigits:2})
+const monthFmt = new Intl.DateTimeFormat('ru-RU',{year:'numeric',month:'2-digit'})
+const dateFmt = new Intl.DateTimeFormat('ru-RU')
+
+const b64 = {
+  enc: arr => btoa(String.fromCharCode(...arr)),
+  dec: str => new Uint8Array(atob(str).split('').map(c=>c.charCodeAt(0)))
+}
+
+function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36)}
+function monthKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
+
+// ===== ШИФРОВАНИЕ (WebCrypto) =====
+const KDF_ITER = 250000
+async function deriveKey(pass, salt){
+  const enc = new TextEncoder()
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey'])
+  return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:KDF_ITER,hash:'SHA-256'}, keyMaterial, {name:'AES-GCM',length:256}, false, ['encrypt','decrypt'])
+}
+async function encryptJSON(obj, pass){
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveKey(pass, salt)
+  const enc = new TextEncoder()
+  const data = enc.encode(JSON.stringify(obj))
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv}, key, data))
+  return {v:1,algo:'AES-GCM',kdf:'PBKDF2',iter:KDF_ITER,salt:b64.enc(salt),iv:b64.enc(iv),data:b64.enc(cipher)}
+}
+async function decryptJSON(bundle, pass){
+  const salt=b64.dec(bundle.salt), iv=b64.dec(bundle.iv), data=b64.dec(bundle.data)
+  const key = await deriveKey(pass, salt)
+  const plain = await crypto.subtle.decrypt({name:'AES-GCM',iv}, key, data)
+  const dec = new TextDecoder()
+  return JSON.parse(dec.decode(new Uint8Array(plain)))
+}
+
+// ===== ХРАНИЛИЩЕ =====
+const LS_KEY = 'ofb_vault'
+let STATE = { unlocked:true, pass:null, vault: ensureVault(loadVaultPlain()) }
+
+// ===== ФИЛЬТР ПЕРИОДА =====
+let PERIOD_FILTER = { fromMonth: null, toMonth: null, mode: 'period', singleMonth: null }
+
+function ensureVault(v){
+  try{
+    if(!v || typeof v!=='object') return emptyVault()
+    if(!Array.isArray(v.transactions)) v.transactions=[]
+    if(!v.adjustments || typeof v.adjustments!=='object') v.adjustments={}
+    if(!v.currency) v.currency='BGN'
+    return v
+  }catch{ return emptyVault() }
+}
+
+function loadBundle(){
+  const raw = localStorage.getItem(LS_KEY)
+  return raw?JSON.parse(raw):null
+}
+function loadVaultPlain(){
+  try{ const raw=localStorage.getItem(LS_KEY); return raw?JSON.parse(raw):null }catch{ return null }
+}
+async function saveVault(){
+  if(!STATE.vault) return
+  localStorage.setItem(LS_KEY, JSON.stringify(STATE.vault))
+  toast('Данные сохранены локально')
+}
+
+// Полный сброс данных и UI перед новым импортом
+function resetBeforeImport(kind){
+  try{ localStorage.removeItem(LS_KEY) }catch(e){}
+  STATE = {unlocked:true, pass:null, vault: emptyVault()}
+  window.UI = {}
+  // Для импорта хранилища также очистим выбор XML
+  if(kind==='vault'){
+    try{ clearFile('bankXml') }catch(e){}
+    try{ clearXmlSelection() }catch(e){}
+  }
+  render()
+}
+
+function setCurrency(cur){
+  try{STATE.vault.currency=cur; (fmt.resolvedOptions().currency!==cur);}
+  catch(e){}
+  // Пересоздадим форматтер
+  window.fmt = new Intl.NumberFormat('ru-RU',{style:'currency',currency:cur,maximumFractionDigits:2})
+  render()
+}
+
+// ===== ТОСТ =====
+let toastTimer=null
+function toast(text,kind='success'){
+  clearTimeout(toastTimer)
+  let el=$('#toast')
+  if(!el){
+    el=document.createElement('div')
+    el.id='toast'
+    el.style.position='fixed';el.style.right='16px';el.style.bottom='16px';el.style.zIndex='9999';el.style.maxWidth='320px'
+    document.body.appendChild(el)
+  }
+  el.innerHTML = `<div class="${kind==='success'?'success':'warnbox'}">${text}</div>`
+  toastTimer=setTimeout(()=>{el.innerHTML=''},2400)
+}
+
+// ===== ПАРСИНГ ДАТЫ/CSV =====
+function parseDateFlexible(s){
+  s = (s||'').trim()
+  // поддержка: YYYY-MM-DD, DD.MM.YYYY, MM/DD/YYYY, DD/MM/YYYY
+  let m
+  if((m=s.match(/^(\d{4})[-.\/]?(\d{2})[-.\/]?(\d{2})$/))) return new Date(+m[1],+m[2]-1,+m[3])
+  if((m=s.match(/^(\d{2})[.](\d{2})[.](\d{4})$/))) return new Date(+m[3],+m[2]-1,+m[1])
+  if((m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/))){
+    // Всегда трактуем как DD/MM/YYYY (европейский формат)
+    const d=+m[1], mo=+m[2], y=+m[3]
+    return new Date(y,mo-1,d)
+  }
+  const d=new Date(s); if(!isNaN(d)) return d
+  return null
+}
+
+function detectDelimiter(text){
+  const candidates=[',',';','\t','|']
+  const lines=text.split(/\r?\n/).slice(0,5)
+  let best=',',score=0
+  for(const d of candidates){
+    const counts=lines.map(l=>l.split(d).length)
+    const uniq=new Set(counts)
+    const s = counts.reduce((a,b)=>a+b,0)
+    if(uniq.size===1 && s>score){best=d;score=s}
+  }
+  return best
+}
+
+function parseCSV(text){
+  const delim = detectDelimiter(text)
+  const rows=[]; let i=0, cur='', inQ=false
+  function pushCell(){(rows[rows.length-1]||rows.push([]),rows[rows.length-1]).push(cur);cur=''}
+  function pushRow(){if(rows.length===0||rows[rows.length-1].length) rows.push([])}
+  rows.push([])
+  while(i<text.length){
+    const ch=text[i]
+    if(ch==='"'){
+      if(inQ && text[i+1]==='"'){cur+='"'; i+=2; continue}
+      inQ=!inQ; i++; continue
+    }
+    if(!inQ && (ch==='\n' || ch==='\r')){ pushCell(); pushRow(); if(ch==='\r'&&text[i+1]==='\n') i++; i++; continue }
+    if(!inQ && text.substr(i,delim.length)===delim){ pushCell(); i+=delim.length; continue }
+    cur+=ch; i++
+  }
+  pushCell()
+  // удалить пустые последнюю/первую
+  return rows.filter(r=>r.length && r.some(c=>String(c).trim().length))
+}
+
+// ===== МОДЕЛЬ ДАННЫХ =====
+function emptyVault(){
+  return {
+    currency:'BGN',
+    transactions:[], // {id,date:ISO,desc,amount:number,category?:string,source:'import'|'manual'}
+    adjustments:{}, // { 'YYYY-MM': number }
+    createdAt: new Date().toISOString(),
+    version:1
+  }
+}
+
+function addTransactions(list){
+  for(const t of list){ STATE.vault.transactions.push(t) }
+}
+
+function addManual(tx){ STATE.vault.transactions.push(tx) }
+
+function setAdjustment(month, amount){ STATE.vault.adjustments[month]=amount }
+
+function monthBuckets(){
+  const byM = {}
+  for(const t of STATE.vault.transactions){
+    const d=new Date(t.date), m=monthKey(d)
+    ;(byM[m]||(byM[m]={income:0,expense:0,net:0,items:[],byCat:{}}))
+    byM[m].items.push(t)
+    if(t.amount>=0) byM[m].income+=t.amount; else byM[m].expense+=-t.amount
+    byM[m].net += t.amount
+    const cat=t.category||'Без категории'
+    byM[m].byCat[cat]=(byM[m].byCat[cat]||0)+Math.abs(t.amount)
+  }
+  for(const m in STATE.vault.adjustments){
+    const a=STATE.vault.adjustments[m]||0
+    ;(byM[m]||(byM[m]={income:0,expense:0,net:0,items:[],byCat:{}}))
+    byM[m].net += a
+    if(a>=0) byM[m].income += a; else byM[m].expense += -a
+    byM[m].byCat['Корректировки']=(byM[m].byCat['Корректировки']||0)+Math.abs(a)
+  }
+  const months=Object.keys(byM).sort()
+  return {months, byM}
+}
+
+function filteredMonthBuckets(){
+  const {months, byM} = monthBuckets()
+  
+  if(PERIOD_FILTER.mode === 'month' && PERIOD_FILTER.singleMonth) {
+    // Режим одного месяца
+    const filteredMonths = months.filter(m => m === PERIOD_FILTER.singleMonth)
+    return {months: filteredMonths, byM}
+  } else if(PERIOD_FILTER.mode === 'period' && PERIOD_FILTER.fromMonth && PERIOD_FILTER.toMonth) {
+    // Режим периода
+    const filteredMonths = months.filter(m => m >= PERIOD_FILTER.fromMonth && m <= PERIOD_FILTER.toMonth)
+    return {months: filteredMonths, byM}
+  }
+  
+  return {months, byM}
+}
+
+function filteredTransactions(){
+  if(PERIOD_FILTER.mode === 'month' && PERIOD_FILTER.singleMonth) {
+    // Режим одного месяца
+    return STATE.vault.transactions.filter(t => {
+      const month = monthKey(new Date(t.date))
+      return month === PERIOD_FILTER.singleMonth
+    })
+  } else if(PERIOD_FILTER.mode === 'period' && PERIOD_FILTER.fromMonth && PERIOD_FILTER.toMonth) {
+    // Режим периода
+    return STATE.vault.transactions.filter(t => {
+      const month = monthKey(new Date(t.date))
+      return month >= PERIOD_FILTER.fromMonth && month <= PERIOD_FILTER.toMonth
+    })
+  }
+  
+  return [...STATE.vault.transactions]
+}
+
+// ===== РЕНДЕР =====
+function render(){
+  $('#vaultTag').textContent = `хранилище: локально (${STATE.vault?.currency||'—'})`
+  $('#side').innerHTML = sideUI()
+  $('#main').innerHTML = mainUI()
+  bindSide()
+  bindMain()
+}
+
+// выключено: экран входа не используется в режиме без пароля
+
+function sideUI(){
+  const {currency}=STATE.vault
+  return `
+  <div class="card">
+    <h3>Файлы хранилища</h3>
+    <div class="hr"></div>
+    <div class="grid-sm">
+      <label class="btn" for="inputImportVault">Импорт</label>
+      <button id="btnExportVault" class="btn">Экспорт</button>
+      <input id="inputImportVault" type="file" accept="application/json,.json" class="hidden" />
+    </div>
+    <div class="hr"></div>
+    <label for="selectCurrency">Валюта интерфейса</label>
+    <select id="selectCurrency">
+      ${['BGN','EUR','USD','UAH'].map(c=>`<option ${c===currency?'selected':''}>${c}</option>`).join('')}
+    </select>
+    <div class="hr"></div>
+    <button id="btnResetApp" class="danger btn-small">Сбросить приложение (удалить localStorage)</button>
+  </div>
+
+  <div class="card">
+    <h3>Импорт выписки (XML)</h3>
+    <div class="hr"></div>
+    
+    <!-- Зона выбора файла -->
+    <div id="xmlDropzone" class="dropzone">
+      <label id="btnChooseXml" class="btn" for="bankXml">📁 Выбрать XML файл</label>
+      <input id="bankXml" type="file" accept=".xml,text/xml,application/xml" class="hidden" onchange="onXmlChosen(event)" />
+      <div class="help" style="margin-top:8px">Выберите файл или перетащите его сюда</div>
+    </div>
+    
+    <!-- Информация о выбранном файле -->
+    <div id="xmlFileInfo" style="display:none;margin-top:12px;padding:12px;background:var(--card);border:1px solid var(--accent);border-radius:8px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="color:var(--accent);font-size:16px;">✓</span>
+        <div id="xmlFileName" style="font-weight:600;color:var(--text);"></div>
+      </div>
+      <div id="xmlInfo" style="color:var(--accent);font-weight:500;margin-bottom:4px;"></div>
+      <div id="xmlStatus" style="color:var(--muted);font-size:12px;"></div>
+    </div>
+    
+    <!-- Кнопки управления -->
+    <div class="hr"></div>
+    <div class="controls">
+      <button id="btnClearXml" class="btn" disabled>Очистить</button>
+      <button id="btnDoImportXml" class="primary" disabled>Импортировать</button>
+    </div>
+  </div>`
+}
+
+function mainUI(){
+  const {months,byM}=monthBuckets()
+  const lastM = months[months.length-1]
+  const curr = STATE.vault.currency
+  
+  // Устанавливаем период по умолчанию если не задан
+  if(!PERIOD_FILTER.fromMonth && months.length > 0){
+    PERIOD_FILTER.fromMonth = months[0]
+    PERIOD_FILTER.toMonth = months[months.length-1]
+    PERIOD_FILTER.singleMonth = lastM || months[months.length-1]
+  }
+  
+  // Вычисляем статистику на основе фильтра
+  const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+  const totalIncome = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.income||0),0)
+  const totalExpense = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.expense||0),0)
+  const totalNet = totalIncome - totalExpense
+  
+  const recent = filteredTransactions().sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,7)
+
+  return `
+  ${helpHTML()}
+  <div class="card" style="margin-top:12px">
+    <div class="inline">
+      <h3 style="margin:0">Фильтр операций</h3>
+      <span class="right"></span>
+      <button id="btnOpenAdd" class="primary">Добавить запись…</button>
+    </div>
+    <div class="hr"></div>
+    <div class="filter-layout">
+      <div class="filter-controls">
+        <div class="controls" style="margin-bottom:8px">
+          <label class="pill">
+            <input type="radio" name="filterMode" value="period" checked> Период
+          </label>
+          <label class="pill">
+            <input type="radio" name="filterMode" value="month"> Месяц
+          </label>
+        </div>
+        <div id="periodControls" class="controls">
+          <label class="pill">От<select id="globalFromMonth" style="margin-left:6px">${months.map(m=>`<option ${m===PERIOD_FILTER.fromMonth?'selected':''}>${m}</option>`).join('')}</select></label>
+          <label class="pill" style="margin-left:8px">До<select id="globalToMonth" style="margin-left:6px">${months.map(m=>`<option ${m===PERIOD_FILTER.toMonth?'selected':''}>${m}</option>`).join('')}</select></label>
+        </div>
+        <div id="monthControls" class="controls" style="display:none">
+          <label class="pill">Месяц<select id="globalSingleMonth" style="margin-left:6px">${months.map(m=>`<option ${m===lastM?'selected':''}>${m}</option>`).join('')}</select></label>
+        </div>
+      </div>
+      <div class="filter-stats">
+        <div class="card stat"><span class="muted">Доходы</span><b id="incomeValue" class="ok">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalIncome)}</b></div>
+        <div class="card stat"><span class="muted">Расходы</span><b id="expenseValue" style="color:var(--danger)">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalExpense)}</b></div>
+        <div class="card stat"><span class="muted">Итог</span><b id="netValue" style="color:${totalNet>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalNet)}</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row cols-2" style="margin-top:12px">
+    <div class="card"><div class="controls"><b>Доходы/Расходы по месяцам</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="bar">⤢</button></div><canvas id="bar"></canvas></div>
+    <div class="card"><div class="controls"><b>Чистый итог по месяцам</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="line">⤢</button></div><canvas id="line"></canvas></div>
+  </div>
+
+  <div class="row cols-2" style="margin-top:12px">
+    <div class="card">
+      <div class="controls"><b>Анализ расходов</b>
+        <span class="right"></span>
+        <label class="pill">Тип<select id="pieMode" style="margin-left:6px"><option value="income_expense">Доходы/Расходы</option><option value="categories">По категориям</option></select></label>
+        <button class="icon-btn" title="Развернуть" data-expand="pie" style="margin-left:8px">⤢</button>
+      </div>
+      <canvas id="pie"></canvas>
+    </div>
+    <div class="card">
+      <div class="controls"><b>Недавние операции</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="recent" style="margin-left:8px">⤢</button></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
+          <tbody>
+            ${recent.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="dashOverlay" class="overlay"></div>
+  <div id="dashModal" class="modal">
+    <div class="head inline"><h3 id="dashModalTitle" style="margin:0"></h3><span class="right"></span><button id="btnCloseDashModal" class="icon-btn" title="Закрыть">✕</button></div>
+    <div id="dashModalContent"></div>
+  </div>`
+}
+
+function bindMain(){
+  const {months,byM}=monthBuckets()
+  
+  // Для столбчатой диаграммы используем фильтрованные данные
+  const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+  const barLabels = filteredMonths
+  const barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
+  const barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+  
+  // Для линейной диаграммы используем фильтрованные данные
+  const lineLabels = filteredMonths
+  const lineNets = filteredMonths.map(m=>filteredByM[m]?.net || 0)
+
+  drawBarChart($('#bar'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
+  drawLineChart($('#line'), lineLabels, lineNets)
+
+  const modeSelect=$('#pieMode')
+  function drawPieChart(){
+    const mode = modeSelect ? modeSelect.value : 'income_expense'
+    const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+    
+    // Агрегируем данные по всем месяцам в фильтре
+    let totalIncome = 0, totalExpense = 0, totalByCat = {}
+    filteredMonths.forEach(m => {
+      const monthData = filteredByM[m]
+      if(monthData) {
+        totalIncome += monthData.income || 0
+        totalExpense += monthData.expense || 0
+        Object.keys(monthData.byCat || {}).forEach(cat => {
+          totalByCat[cat] = (totalByCat[cat] || 0) + (monthData.byCat[cat] || 0)
+        })
+      }
+    })
+    
+    if(mode === 'categories'){
+      const labels2=Object.keys(totalByCat)
+      const vals=labels2.map(k=>totalByCat[k])
+      drawDonutChart($('#pie'), labels2, vals)
+    }else{
+      drawDonutChart($('#pie'), ['Доходы','Расходы'], [totalIncome, totalExpense])
+    }
+  }
+  
+  drawPieChart() // Первоначальная отрисовка
+  
+  if(modeSelect){
+    modeSelect.value = (window.UI && UI.pieCats) ? 'categories' : 'income_expense'
+    modeSelect.onchange=()=>{ 
+      window.UI=window.UI||{}; 
+      UI.pieCats = modeSelect.value === 'categories'
+      drawPieChart()
+    }
+  }
+  // Глобальные обработчики фильтрации
+  function updateAllCharts(){
+    const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+    const barLabels = filteredMonths
+    const barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
+    const barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+    const lineNets = filteredMonths.map(m=>filteredByM[m]?.net || 0)
+    
+    drawBarChart($('#bar'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
+    drawLineChart($('#line'), barLabels, lineNets)
+    drawPieChart()
+    
+    // Обновляем статистику
+    updateStats()
+    
+    // Обновляем только таблицу операций без полного рендера
+    updateRecentOperationsTable()
+  }
+  
+  function updateStats(){
+    const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+    const totalIncome = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.income||0),0)
+    const totalExpense = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.expense||0),0)
+    const totalNet = totalIncome - totalExpense
+    const curr = STATE.vault.currency
+    
+    // Обновляем блоки статистики с помощью ID
+    const incomeEl = $('#incomeValue')
+    const expenseEl = $('#expenseValue')
+    const netEl = $('#netValue')
+    
+    if(incomeEl) incomeEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalIncome)
+    if(expenseEl) expenseEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalExpense)
+    if(netEl) {
+      netEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalNet)
+      netEl.style.color = totalNet>=0?'var(--ok)':'var(--danger)'
+    }
+  }
+  
+  function updateRecentOperationsTable(){
+    const recent = filteredTransactions().sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,7)
+    const curr = STATE.vault.currency
+    const tbody = $('#main .table-scroll tbody')
+    if(tbody) {
+      tbody.innerHTML = recent.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')
+      // Переназначаем обработчики удаления
+      $$('[data-del-tx]', tbody).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
+    }
+  }
+
+  // Радиокнопки переключения режима
+  $$('input[name="filterMode"]').forEach(radio => {
+    radio.onchange = () => {
+      PERIOD_FILTER.mode = radio.value
+      const periodControls = $('#periodControls')
+      const monthControls = $('#monthControls')
+      
+      if(radio.value === 'period') {
+        periodControls.style.display = 'flex'
+        monthControls.style.display = 'none'
+      } else {
+        periodControls.style.display = 'none'
+        monthControls.style.display = 'flex'
+      }
+      updateAllCharts()
+    }
+  })
+
+  // Обработчики периода (от/до)
+  const globalFromMonth = $('#globalFromMonth')
+  const globalToMonth = $('#globalToMonth')
+  if(globalFromMonth) globalFromMonth.onchange = () => {
+    PERIOD_FILTER.fromMonth = globalFromMonth.value
+    updateAllCharts()
+  }
+  if(globalToMonth) globalToMonth.onchange = () => {
+    PERIOD_FILTER.toMonth = globalToMonth.value
+    updateAllCharts()
+  }
+
+  // Обработчик одного месяца
+  const globalSingleMonth = $('#globalSingleMonth')
+  if(globalSingleMonth) globalSingleMonth.onchange = () => {
+    PERIOD_FILTER.singleMonth = globalSingleMonth.value
+    updateAllCharts()
+  }
+
+  const btn=$('#btnOpenAdd'); if(btn) btn.onclick=openAddModal
+  $$('[data-expand]').forEach(b=>{ b.onclick=()=>{ openExpanded(b.getAttribute('data-expand')) } })
+  $$('[data-del-tx]').forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
+  const overlay=$('#dashOverlay'); if(overlay){ overlay.onclick=closeExpanded }
+  const closeBtn=$('#btnCloseDashModal'); if(closeBtn){ closeBtn.onclick=closeExpanded }
+  if(window.UI&&UI.expanded){ renderExpanded(UI.expanded) } else { hideExpanded() }
+}
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+function bindUnlock(){
+  $('#btnUnlock').onclick = async ()=>{
+    const pass = $('#pass').value.trim()
+    if(pass.length<8){toast('Пароль слишком короткий','warn');return}
+    const bundle = loadBundle()
+    if(bundle){
+      try{
+        const vault = await decryptJSON(bundle, pass)
+        STATE={unlocked:true,pass,vault}
+        toast('Хранилище разблокировано')
+        render()
+      }catch(e){ toast('Неверный пароль или повреждённые данные','warn') }
+    }else{
+      STATE={unlocked:true,pass,vault:emptyVault()}
+      await saveVault(); render()
+    }
+  }
+  $('#restoreFile').onchange = async (e)=>{
+    const file=e.target.files[0]; if(!file) return
+    const text=await file.text()
+    try{ JSON.parse(text); localStorage.setItem(LS_KEY,text); toast('Резервная копия загружена. Теперь разблокируйте.','success') }
+    catch(err){ toast('Некорректный файл резервной копии','warn') }
+  }
+}
+
+function bindSide(){
+  // режим без пароля — кнопка скрыта
+  $('#selectCurrency').onchange=(e)=>setCurrency(e.target.value)
+
+  // Хранилище
+  $('#btnExportVault').onclick=()=>{
+    const data = localStorage.getItem(LS_KEY)
+    if(!data){toast('Нет данных для экспорта','warn');return}
+    download(`ofb-vault-${new Date().toISOString().slice(0,10)}.json`, data)
+  }
+  $('#inputImportVault').onchange=async (e)=>{
+    const f=e.target.files[0]; if(!f) return
+    const t=await f.text();
+    try{
+      const parsed = ensureVault(JSON.parse(t))
+      // Полностью очистим предыдущее состояние перед загрузкой нового
+      resetBeforeImport('vault')
+      localStorage.setItem(LS_KEY, JSON.stringify(parsed))
+      STATE.vault = parsed
+      toast('Хранилище импортировано.')
+      render()
+    }catch(err){
+      toast('Повреждённый файл','warn')
+    }
+  }
+  $('#btnResetApp').onclick=()=>{ if(confirm('Удалить localStorage и сбросить приложение?')){ localStorage.removeItem(LS_KEY); STATE={unlocked:false,pass:null,vault:null}; render(); toast('Сброшено') } }
+
+  // XML импорт - обработчик задан в HTML onchange="onXmlChosen(event)"
+  const bankXml = $('#bankXml'); 
+  $('#btnDoImportXml').onclick = doImportXml
+  $('#btnClearXml').onclick = () => { 
+    clearFile('bankXml'); 
+    clearXmlSelection();
+    toast('Выбор файла очищен');
+  }
+  const dz = $('#xmlDropzone')
+  ;['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.add('drag')}))
+  ;['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.remove('drag')}))
+  dz.addEventListener('drop', async (e)=>{ const f=e.dataTransfer.files?.[0]; if(f){ $('#bankXml').files = e.dataTransfer.files; await onXmlChosen() } })
+
+  // CSV отключён
+}
+
+// CSV импорт удалён
+
+// ===== ИМПОРТ ВЫПИСКИ (XML) =====
+let PENDING_XML_TEXT=null
+
+// Делаем функцию глобально доступной для HTML onchange
+window.onXmlChosen = async function(event) {
+  try{
+    const inp = event ? event.target : $('#bankXml'); 
+    if (!inp) { 
+      toast('Ошибка: не найден input bankXml','warn'); 
+      return;
+    }
+    const file = inp.files && inp.files[0]; 
+    if (!file) {
+      clearXmlSelection();
+      return;
+    }
+    // Получаем элементы
+    const xmlFileInfoEl = $('#xmlFileInfo');
+    const xmlFileNameEl = $('#xmlFileName');
+    const xmlInfoEl = $('#xmlInfo');
+    const xmlStatusEl = $('#xmlStatus');
+    // Fallback если readFileTextSmart не доступна
+    if (typeof readFileTextSmart !== 'function') {
+      const readFileTextSmart = (file) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.onerror = (e) => reject(e);
+          reader.readAsText(file, 'UTF-8');
+        });
+      };
+      window.readFileTextSmart = readFileTextSmart;
+    }
+    // Показываем информацию о файле
+    if (xmlFileInfoEl) {
+      xmlFileInfoEl.style.display = 'block';
+    }
+    if (xmlFileNameEl) {
+      // Обрезаем длинное название файла
+      const truncateFileName = (name, maxLength = 20) => {
+        return name.length > maxLength ? name.substring(0, maxLength) + '...' : name;
+      };
+      xmlFileNameEl.textContent = `${truncateFileName(file.name)} (${(file.size/1024).toFixed(1)} KB)`;
+      // Добавляем полное название в title для показа при наведении
+      xmlFileNameEl.title = file.name;
+    }
+    if (xmlStatusEl) {
+      xmlStatusEl.textContent = 'Обработка файла...';
+      xmlStatusEl.style.color = 'var(--muted)';
+    }
+    // Читаем и парсим файл
+    const text = await readFileTextSmart(file); 
+    PENDING_XML_TEXT = text;
+    const info = previewXml(text);
+    if (info.count > 0) {
+      const infoText = `${info.count} операций · ${info.firstDate} — ${info.lastDate}${info.currency ? ` · ${info.currency}` : ''}`;
+      if (xmlInfoEl) {
+        xmlInfoEl.textContent = infoText;
+        xmlInfoEl.style.color = 'var(--accent)';
+      }
+      if (xmlStatusEl) {
+        xmlStatusEl.textContent = 'Готов к импорту';
+        xmlStatusEl.style.color = 'var(--ok)';
+      }
+      enableXmlButtons();
+    } else {
+      if (xmlInfoEl) {
+        xmlInfoEl.textContent = 'Транзакции не найдены в файле';
+        xmlInfoEl.style.color = 'var(--warn)';
+      }
+      if (xmlStatusEl) {
+        xmlStatusEl.textContent = 'Файл не содержит транзакций';
+        xmlStatusEl.style.color = 'var(--warn)';
+      }
+      disableXmlButtons();
+    }
+  } catch(e) { 
+    toast('Ошибка обработки XML: ' + e.message, 'warn');
+    const xmlFileInfoEl = $('#xmlFileInfo');
+    const xmlStatusEl = $('#xmlStatus');
+    if (xmlFileInfoEl) {
+      xmlFileInfoEl.style.display = 'block';
+    }
+    if (xmlStatusEl) {
+      xmlStatusEl.textContent = 'Ошибка: ' + e.message;
+      xmlStatusEl.style.color = 'var(--danger)';
+    }
+    disableXmlButtons();
+  }
+};
+// Функции управления состоянием XML импорта
+function enableXmlButtons() {
+  const importBtn = $('#btnDoImportXml');
+  const clearBtn = $('#btnClearXml');
+  if (importBtn) {
+    importBtn.disabled = false;
+    importBtn.style.opacity = '1';
+  }
+  if (clearBtn) {
+    clearBtn.disabled = false;
+    clearBtn.style.opacity = '1';
+  }
+}
+
+function disableXmlButtons() {
+  const importBtn = $('#btnDoImportXml');
+  const clearBtn = $('#btnClearXml');
+  if (importBtn) {
+    importBtn.disabled = true;
+    importBtn.style.opacity = '0.5';
+  }
+  if (clearBtn) {
+    clearBtn.disabled = true;
+    clearBtn.style.opacity = '0.5';
+  }
+}
+
+function clearXmlSelection() {
+  PENDING_XML_TEXT = null;
+  
+  const xmlFileInfoEl = $('#xmlFileInfo');
+  if (xmlFileInfoEl) {
+    xmlFileInfoEl.style.display = 'none';
+  }
+  
+  // Очищаем содержимое
+  const elements = ['#xmlFileName', '#xmlInfo', '#xmlStatus'];
+  elements.forEach(sel => {
+    const el = $(sel);
+    if (el) el.textContent = '';
+  });
+  
+  disableXmlButtons();
+}
+
+
+async function doImportXml(){
+  if(!PENDING_XML_TEXT){ 
+    toast('Сначала выберите XML файл', 'warn'); 
+    return;
+  }
+  
+  try{
+    // Полный сброс данных перед импортом нового XML
+    resetBeforeImport('xml')
+    const res = parseXmlTransactions(PENDING_XML_TEXT);
+    
+    if(!res || !res.transactions || !res.transactions.length){ 
+      toast('В XML файле не найдены транзакции','warn'); 
+      return;
+    }
+    
+    // Показываем прогресс
+    const xmlStatusEl = $('#xmlStatus');
+    if (xmlStatusEl) {
+      xmlStatusEl.textContent = `Импорт ${res.transactions.length} операций...`;
+      xmlStatusEl.style.color = 'var(--primary)';
+    }
+    
+    addTransactions(res.transactions);
+    if(res.currency){ 
+      STATE.vault.currency = res.currency;
+    }
+    
+    // Устанавливаем период по умолчанию на основе импортированных данных
+    if(res.transactions.length > 0){
+      const dates = res.transactions.map(t => t.date).sort()
+      const firstDate = new Date(dates[0])
+      const lastDate = new Date(dates[dates.length-1])
+      PERIOD_FILTER.fromMonth = monthKey(firstDate)
+      PERIOD_FILTER.toMonth = monthKey(lastDate)
+      PERIOD_FILTER.singleMonth = monthKey(lastDate) // Устанавливаем последний месяц как одиночный
+    }
+    
+    await saveVault(); 
+    render(); 
+    
+    toast(`✅ Успешно импортировано ${res.transactions.length} операций`);
+    
+    // Очищаем выбор после успешного импорта
+    clearFile('bankXml');
+    clearXmlSelection();
+    
+  } catch(err){ 
+    toast('Ошибка импорта XML: ' + err.message, 'warn');
+    
+    const xmlStatusEl = $('#xmlStatus');
+    if (xmlStatusEl) {
+      xmlStatusEl.textContent = 'Ошибка импорта: ' + err.message;
+      xmlStatusEl.style.color = 'var(--danger)';
+    }
+  }
+}
+function previewXml(xmlText){
+  try{
+    const {transactions,currency} = parseXmlTransactions(xmlText)
+    if(!transactions || !transactions.length) {
+      return {count:0}
+    }
+    
+    const dates = transactions.map(t=>new Date(t.date))
+    const firstDate = dateFmt.format(new Date(Math.min(...dates)))
+    const lastDate = dateFmt.format(new Date(Math.max(...dates)))
+    return {count:transactions.length, firstDate, lastDate, currency}
+  } catch(e) { 
+    return {count:0} 
+  }
+}
+function parseXmlTransactions(xmlText){
+  
+  // Приведём возможный BOM/кодировку: поддержка UTF-16LE/BE и UTF-8
+  if(typeof xmlText !== 'string'){
+    xmlText = String(xmlText)
+  }
+  // Удаляем BOM, если есть
+  if(xmlText.charCodeAt(0)===0xFEFF){ xmlText = xmlText.slice(1) }
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, 'application/xml');
+  const parserErr = doc.querySelector('parsererror');
+  
+  if(parserErr) {
+    throw new Error('XML parse error');
+  }
+  // Нормализуем имена: приведём к нижнему регистру
+  function tagsLower(arr){ return arr.map(s=>String(s).toLowerCase()) }
+  const amountTags = tagsLower(['amount','amt','sum','value','transactionamount','creditamount','debitamount','entryamount','bookedamount','instructedamount','amount_c','amount_d','ценность','сумма','AMOUNT_C','AMOUNT_D'])
+  const dateTags = tagsLower(['date','bookingdate','valuedate','posted','postdate','tradedate','transdate','entrydate','post_date','дата','POST_DATE'])
+  const indicatorTags = tagsLower(['creditdebitindicator','crdr','dc','drcr','debitcredit','direction','indicator','sign','признак','тип'])
+  const descTags = tagsLower(['description','narrative','details','memo','text','remittanceinformation','purpose','name','payee','merchant','counterparty','beneficiary','payer','receiver','reference','info','note','назначение','описание','TR_NAME','NAME_R','REM_I','REM_II'])
+  const currencyTags = tagsLower(['currency','ccy','curr','валюта'])
+  const all = Array.from(doc.querySelectorAll('*'));
+  const candidates = new Map();
+  for(const el of all){
+    const hasAmt = qAny(el, amountTags);
+    const hasDate = qAny(el, dateTags);
+    if(hasAmt && hasDate){
+      const key = el.tagName.toLowerCase();
+      candidates.set(key, (candidates.get(key)||0)+1);
+    }
+  }
+  let txTag=null, best=0;
+  for(const [k,v] of candidates){ if(v>best){best=v; txTag=k} }
+  if(!txTag){ for(const k of ['transaction','entry','statementline','record','operation','row','item','movement']){ if(doc.getElementsByTagName(k).length){ txTag=k; break } } }
+  // В XML теги регистрозависимые, поэтому фильтруем вручную
+  const allEls = Array.from(doc.getElementsByTagName('*'))
+  const nodes = txTag ? allEls.filter(n=>n.tagName.toLowerCase()===txTag) : []
+  
+  const txs=[]; let detectedCurrency=null;
+  for(const n of nodes){
+    // Вариант со строгими именами для test.xml
+    const directDate = (n.getElementsByTagName('POST_DATE')[0]||n.getElementsByTagName('post_date')[0])?.textContent?.trim()
+    const directCredit = (n.getElementsByTagName('AMOUNT_C')[0]||n.getElementsByTagName('amount_c')[0])?.textContent?.trim()
+    const directDebit = (n.getElementsByTagName('AMOUNT_D')[0]||n.getElementsByTagName('amount_d')[0])?.textContent?.trim()
+    
+    let dateStr = getFirstText(n, dateTags) || directDate
+    const amtObj = getAmount(n, amountTags) || (directCredit?{value:directCredit,node:{tagName:'AMOUNT_C'}}: directDebit?{value:directDebit,node:{tagName:'AMOUNT_D'}}: null)
+    if(!amtObj || !dateStr) { continue }
+    
+    let amt = parseAmountAuto(amtObj.value);
+    const ind = getFirstText(n, indicatorTags);
+    
+    // Специальная обработка для AMOUNT_C и AMOUNT_D  
+    const creditAmt = getFirstText(n, ['creditamount', 'amount_c']);
+    const debitAmt = getFirstText(n, ['debitamount', 'amount_d']);
+    
+    if(creditAmt && !debitAmt){ 
+      amt = Math.abs(parseAmountAuto(creditAmt));
+    }
+    else if(debitAmt && !creditAmt){ 
+      amt = -Math.abs(parseAmountAuto(debitAmt));
+    }
+    else if(ind){
+      const s = ind.trim().toLowerCase();
+      if(['cr','c','credit','кредит'].includes(s)) amt = Math.abs(amt);
+      else if(['dr','d','debit','дебет'].includes(s)) amt = -Math.abs(amt);
+    }
+    if(/^[−–—-]/.test(String(amtObj.value).trim())) amt = -Math.abs(Math.abs(amt));
+    const d = parseDateFlexible(dateStr); if(!d) continue;
+    const desc = getFirstText(n, descTags) || '';
+    const curr = amtObj.currency || getFirstText(n, currencyTags) || (amtObj.node && (amtObj.node.getAttribute('ccy')||amtObj.node.getAttribute('currency')||amtObj.node.getAttribute('curr')));
+    if(curr && !detectedCurrency) detectedCurrency = String(curr).trim().toUpperCase();
+    txs.push({id:uid(),date:d.toISOString().slice(0,10),desc:String(desc).trim(),amount:amt,category:null,source:'import'});
+  }
+  
+  return {transactions:txs, currency:detectedCurrency};
+}
+
+// ===== УДАЛЕНИЕ РУЧНЫХ ОПЕРАЦИЙ =====
+function deleteManualTx(id){
+  const idx = STATE.vault.transactions.findIndex(t=>t.id===id)
+  if(idx<0){ toast('Запись не найдена','warn'); return }
+  if(STATE.vault.transactions[idx].source!=='manual'){ toast('Удалять можно только вручную добавленные записи','warn'); return }
+  STATE.vault.transactions.splice(idx,1)
+  saveVault(); render(); toast('Запись удалена')
+}
+
+// ===== РАЗВОРАЧИВАЕМЫЕ КАРТОЧКИ =====
+function openExpanded(key){ window.UI=window.UI||{}; UI.expanded=key; renderExpanded(key) }
+function closeExpanded(){ window.UI=window.UI||{}; UI.expanded=null; hideExpanded() }
+function hideExpanded(){ const o=$('#dashOverlay'), m=$('#dashModal'); if(o) o.style.display='none'; if(m) m.style.display='none' }
+function renderExpanded(key){
+  const o=$('#dashOverlay'), m=$('#dashModal'), t=$('#dashModalTitle'), c=$('#dashModalContent')
+  if(!o||!m||!t||!c) return
+  o.style.display='block'; m.style.display='block';
+  c.innerHTML=''
+  const {months,byM}=monthBuckets()
+  const labels = months
+  if(key==='bar'){
+    t.textContent='Доходы/Расходы по месяцам'
+    c.innerHTML=`<canvas id="barBig" style="height:64vh"></canvas>`
+    
+    const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+    const barLabels = filteredMonths
+    const barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
+    const barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+    drawBarChart($('#barBig'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
+  }else if(key==='line'){
+    t.textContent='Чистый итог по месяцам'
+    c.innerHTML=`<canvas id="lineBig" style="height:64vh"></canvas>`
+    
+    const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+    const lineLabels = filteredMonths
+    const lineNets = filteredMonths.map(m=>filteredByM[m]?.net || 0)
+    drawLineChart($('#lineBig'), lineLabels, lineNets)
+  }else if(key==='pie'){
+    t.textContent='Анализ расходов'
+    c.innerHTML=`<div class="controls">
+      <label class="pill">Тип<select id="pieModeBig" style="margin-left:6px"><option value="income_expense">Доходы/Расходы</option><option value="categories">По категориям</option></select></label>
+    </div><canvas id="pieBig" style="height:64vh"></canvas>`
+    
+    const modeSel=$('#pieModeBig')
+    const draw=()=>{ 
+      const mode = modeSel ? modeSel.value : 'income_expense'
+      const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
+      
+      // Агрегируем данные по всем месяцам в фильтре
+      let totalIncome = 0, totalExpense = 0, totalByCat = {}
+      filteredMonths.forEach(m => {
+        const monthData = filteredByM[m]
+        if(monthData) {
+          totalIncome += monthData.income || 0
+          totalExpense += monthData.expense || 0
+          Object.keys(monthData.byCat || {}).forEach(cat => {
+            totalByCat[cat] = (totalByCat[cat] || 0) + (monthData.byCat[cat] || 0)
+          })
+        }
+      })
+      
+      if(mode === 'categories'){
+        const l=Object.keys(totalByCat)
+        const v=l.map(k=>totalByCat[k])
+        drawDonutChart($('#pieBig'), l, v) 
+      }else{
+        drawDonutChart($('#pieBig'), ['Доходы','Расходы'], [totalIncome, totalExpense])
+      }
+    }
+    if(modeSel) modeSel.value = (window.UI && UI.pieCats) ? 'categories' : 'income_expense'
+    draw(); 
+    if(modeSel) modeSel.onchange=draw
+  }else if(key==='recent'){
+    t.textContent='Операции'
+    const rows=filteredTransactions().sort((a,b)=>new Date(b.date)-new Date(a.date))
+    const curr=STATE.vault.currency
+    c.innerHTML = `<div class="table-scroll" style="max-height:60vh">
+      <table>
+        <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th style=\"text-align:right\">Сумма</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`
+    $$('[data-del-tx]', c).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
+  }
+}
+
+function qAny(node, tags){
+  const all = node.getElementsByTagName('*')
+  for(const el of all){
+    if(tags.includes(el.tagName.toLowerCase())) return true
+  }
+  return false
+}
+function getFirstText(node, tags){
+  const all = node.getElementsByTagName('*')
+  for(const el of all){
+    if(tags.includes(el.tagName.toLowerCase())){
+      const txt=(el.textContent||'').trim(); if(txt) return txt
+    }
+  }
+  return null
+}
+function getAmount(node, amountTags){
+  const all = node.getElementsByTagName('*')
+  for(const el of all){
+    if(amountTags.includes(el.tagName.toLowerCase())){
+      const txt=(el.textContent||'').trim(); if(!txt) continue
+      const curr = el.getAttribute('ccy')||el.getAttribute('currency')||el.getAttribute('curr')
+      return {value:txt,currency:curr,node:el}
+    }
+  }
+  return null
+}
+function parseAmountAuto(s){
+  s=String(s).replace(/\s/g,'');
+  if(s.includes('.') && s.includes(',')){ const lc=Math.max(s.lastIndexOf(','),0); const ld=Math.max(s.lastIndexOf('.'),0); if(lc>ld){ s=s.replace(/\./g,'').replace(',', '.') } else { s=s.replace(/,/g,'') } }
+  else if(s.includes(',') && !s.includes('.')){ s=s.replace(',','.') }
+  return parseFloat(s)
+}
+
+// ===== ЭКСПОРТ АГРЕГАТОВ =====
+function exportAggregates(){
+  const {months,byM}=monthBuckets();
+  const data = months.map(m=>({month:m,income:+byM[m].income.toFixed(2),expense:+byM[m].expense.toFixed(2),net:+byM[m].net.toFixed(2),count:byM[m].items.length}));
+  const payload = {currency:STATE.vault.currency, generatedAt:new Date().toISOString(), data};
+  download(`ofb-aggregates-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(payload,null,2));
+}
+
+function labelOf(f){
+  return {date:'Дата', amount:'Сумма', desc:'Описание', category:'Категория'}[f]
+}
+
+function guessMapping(head){
+  const lower=head.map(h=>String(h).toLowerCase())
+  function find(...alts){for(const a of alts){const i=lower.findIndex(h=>h.includes(a)); if(i>=0) return i} return 0}
+  return {
+    date: find('date','дата','booking','posted','operation'),
+    amount: find('amount','сумма','debit/credit','debit','credit','ammount'),
+    desc: find('description','описание','memo','details','note','reference'),
+    category: find('category','категория','mcc','type')
+  }
+}
+
+function rowToTx(r,map,dec,fmtSel){
+  function parseAmt(s){ if(dec===',') s=s.replace(/\./g,'').replace(',','.') ; return parseFloat(String(s).replace(/\s/g,'')) }
+  function parseDateFmt(s){
+    if(fmtSel==='auto') return parseDateFlexible(s)
+    const m = String(s).match(/(\d{1,4})\D(\d{1,2})\D(\d{1,4})/)
+    if(!m) return parseDateFlexible(s)
+    let Y,M,D
+    if(fmtSel==='Y-M-D'){Y=+m[1];M=+m[2];D=+m[3]}
+    if(fmtSel==='D.M.Y'){D=+m[1];M=+m[2];Y=+m[3]}
+    if(fmtSel==='M/D/Y'){M=+m[1];D=+m[2];Y=+m[3]}
+    if(fmtSel==='D/M/Y'){D=+m[1];M=+m[2];Y=+m[3]}
+    const d=new Date(Y,M-1,D); return isNaN(d)?null:d
+  }
+  try{
+    const sDate=r[map.date], sAmt=r[map.amount], sDesc=r[map.desc], sCat=r[map.category]
+    const d=parseDateFmt(sDate); if(!d) return null
+    const a=parseAmt(sAmt); if(!isFinite(a) || a===0) return null
+    return {id:uid(),date:d.toISOString().slice(0,10),desc:String(sDesc||'').trim(),amount:a,category:String(sCat||'').trim()||null,source:'import'}
+  }catch(err){return null}
+}
+
+// ===== ГРАФИКИ (Canvas 2D, без либ) =====
+// chart helpers moved to assets/charts.js
+
+function download(name, content){
+  // Попытка показать системный диалог сохранения (современные браузеры)
+  const saveWithPicker = async ()=>{
+    if(window.showSaveFilePicker){
+      try{
+        const handle = await showSaveFilePicker({
+          suggestedName: name,
+          types: [{ description:'JSON', accept:{'application/json':['.json']} }]
+        })
+        const writable = await handle.createWritable()
+        await writable.write(new Blob([content],{type:'application/json'}))
+        await writable.close()
+        toast('Файл сохранён')
+        return true
+      }catch(e){ /* пользователь мог отменить */ }
+    }
+    return false
+  }
+  ;(async()=>{
+    const ok = await saveWithPicker()
+    if(ok) return
+    // Фолбэк — стандартное скачивание в папку загрузок
+    const a=document.createElement('a')
+    a.href=URL.createObjectURL(new Blob([content],{type:'application/json'}))
+    a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+    toast('Файл скачан. При необходимости переместите в папку Data')
+  })()
+}
+
+async function saveChartsPng(){
+  const files=[]
+  for(const id of ['bar','line','pie']){
+    const c = $('#'+id)
+    const blob = await new Promise(res=>c.toBlob(res))
+    files.push({name:`${id}-${new Date().toISOString().slice(0,10)}.png`, blob})
+  }
+  for(const f of files){
+    const a=document.createElement('a'); a.href=URL.createObjectURL(f.blob); a.download=f.name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),800)
+  }
+  toast('Графики сохранены (PNG)')
+}
+
+// ===== ИНИЦ =====
+render()
+
+// Инициализация состояния XML импорта
+disableXmlButtons()
+
+// адаптивный перерисовщик графиков
+let ro=new ResizeObserver(()=>{ bindMain() })
+ro.observe(document.body)
+
+function clearFile(id){ const el=$('#'+id); if(!el) return; try{ el.value=''; }catch{ /* ignore */ } }
+
+// helpHTML вынесен в assets/help.js
+
+</script>
+</body>
+</html>
+
+
+

@@ -1,0 +1,217 @@
+:root{--bg:#0f1216;--card:#151a20;--muted:#97a3b6;--text:#e6edf3;--primary:#4ea1ff;--accent:#6dd3a6;--danger:#ff6b6b;--warn:#f5c25c;--ok:#7bd88f;--grid:#222a34;--chip:#1c2430;--br:16px}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,"Noto Sans",sans-serif}
+a{color:var(--primary)}
+.app{display:grid;grid-template-columns:280px 1fr;grid-template-rows:auto 1fr;min-height:100vh}
+header{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--grid);background:linear-gradient(180deg,#11151a,#0f1216)}
+header h1{font-size:16px;margin:0;font-weight:650}
+header .tag{background:var(--chip);border:1px solid var(--grid);padding:4px 8px;border-radius:999px;color:var(--muted)}
+.side{border-right:1px solid var(--grid);padding:14px;overflow:auto}
+.content{padding:16px;overflow:auto}
+.overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9997;display:none
+}
+.drawer{
+  position:fixed;right:0;top:0;bottom:0;width:min(720px,95vw);background:var(--card);border-left:1px solid var(--grid);z-index:9998;display:none;overflow:auto;padding:16px
+}
+.modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1000px,95vw);max-height:90vh;background:var(--card);border:1px solid var(--grid);border-radius:var(--br);z-index:9998;display:none;overflow:hidden;flex-direction:column}
+.modal[style*="display: block"]{display:flex}
+.modal .head{background:var(--card);padding:12px 16px;border-bottom:1px solid var(--grid);border-top-left-radius:var(--br);border-top-right-radius:var(--br);flex-shrink:0}
+.modal #dashModalContent{padding:16px;overflow:auto;flex:1}
+.card{background:var(--card);border:1px solid var(--grid);border-radius:var(--br);padding:14px}
+.card + .card{margin-top:12px}
+.row .card + .card{margin-top:0}
+.row{display:grid;gap:12px}
+.row.cols-2{grid-template-columns:1fr 1fr}
+.row.cols-3{grid-template-columns:1fr 1fr 1fr}
+.row.cols-4{grid-template-columns:1fr 1fr 1fr 1fr}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+button,.btn{cursor:pointer;background:#1b2330;color:var(--text);border:1px solid var(--grid);padding:8px 10px;border-radius:10px;transition:opacity 0.2s ease}
+/* Выровнять высоту для управляемых кнопок (.btn) и label.btn */
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px}
+button:disabled,.btn:disabled{cursor:not-allowed;opacity:0.5}
+button.primary{background:linear-gradient(180deg,#1f5aa3,#194d8b);border-color:#164274}
+button.primary:disabled{background:#1a1f28;color:var(--muted);border-color:#2a2f38}
+button.warn{background:#2a2416;border-color:#4a3b12;color:#f7d285}
+button.danger{background:#311a1a;border-color:#5d2b2b;color:#ff9a9a}
+input,select,textarea{background:#0e141b;border:1px solid var(--grid);color:var(--text);border-radius:10px;padding:8px 10px;width:100%;max-width:100%}
+input[type=file]{width:100%;max-width:100%}
+label{display:block;margin-bottom:6px;color:var(--muted)}
+.muted{color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--grid);border-radius:999px;padding:4px 8px;color:var(--muted)}
+
+/* Стили для радиокнопок в pill контейнерах */
+.pill input[type="radio"]{
+  accent-color:var(--primary);
+  margin:0;
+  transform:none;
+}
+
+/* Улучшенная компоновка фильтра */
+.filter-layout{
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:24px;
+  align-items:end;
+}
+
+.filter-controls{
+  min-width:320px;
+}
+
+.filter-stats{
+  display:grid;
+  grid-template-columns:repeat(3, minmax(120px, 1fr));
+  gap:12px;
+  align-items:stretch;
+}
+
+.filter-stats .card.stat{
+  margin:0;
+  min-height:80px;
+  justify-content:center;
+}
+
+/* Адаптивность для фильтра */
+@media (max-width: 768px) {
+  .filter-layout{
+    grid-template-columns:1fr;
+    gap:16px;
+  }
+  
+  .filter-stats{
+    grid-template-columns:1fr;
+  }
+}
+.stat{display:flex;flex-direction:column;gap:6px}
+.stat b{font-size:20px;line-height:1.2}
+.hr{height:1px;background:var(--grid);margin:10px 0}
+table{width:100%;border-collapse:collapse}
+th,td{border-bottom:1px dashed var(--grid);padding:8px 6px;text-align:left}
+tr:last-child td{border-bottom:none}
+
+/* Скролл для таблиц операций */
+.table-scroll{
+  max-height:320px;
+  overflow-y:auto;
+  border:1px solid var(--grid);
+  border-radius:8px;
+  margin-top:8px;
+}
+.table-scroll table{
+  border:none;
+  margin:0;
+}
+.table-scroll thead th{
+  position:sticky;
+  top:0;
+  background:var(--card);
+  z-index:1;
+  border-bottom:1px solid var(--grid);
+}
+
+/* Для expand режима таблиц */
+.modal .table-scroll{
+  margin-top:0;
+  border:none;
+  background:transparent;
+}
+.modal .table-scroll table{
+  background:var(--card);
+  border:1px solid var(--grid);
+  border-radius:8px;
+  overflow:hidden;
+}
+canvas{width:100%;height:260px;display:block;background:transparent;border-radius:12px}
+.center{display:flex;align-items:center;justify-content:center}
+.hidden{display:none}
+.ok{color:var(--ok)}.neg{color:var(--danger)}
+.kbd{font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,Consolas,Monaco,monospace;background:#0a0d12;border:1px solid var(--grid);padding:2px 6px;border-radius:8px;color:#9fb1c7}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.help{font-size:12px;color:var(--muted)}
+.right{margin-left:auto}
+.grid-sm{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.grid-sm>*{min-width:0}
+.warnbox{background:#1f1a0c;border:1px solid #3d3414;padding:10px;border-radius:10px;color:#e7d8a2}
+.success{background:#0f1b12;border:1px solid #1d3b24;padding:10px;border-radius:10px;color:#a8e6b5}
+.dropzone{border:1px dashed var(--grid);border-radius:12px;padding:12px;background:#0d131a;cursor:pointer}
+.dropzone.drag{outline:2px solid #4ea1ff}
+
+/* Стили для информации о файле XML */
+#xmlFileInfo #xmlFileName{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  max-width:100%;
+  display:block;
+}
+.btn-small{padding:6px 8px;font-size:12px}
+.icon-btn{padding:4px 8px;font-size:14px;line-height:1;border-radius:8px}
+.inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* Выровнять высоты и карточки */
+.row{align-items:stretch}
+.row .card{display:flex;flex-direction:column;height:100%}
+.row .card .controls{min-height:44px;align-items:center}
+.row.cols-3{grid-auto-rows:1fr}
+.row.cols-3 .card.stat{
+  min-height:120px;
+  height:100%;
+  justify-content:center;
+  align-items:flex-start;
+  padding:20px 14px;
+}
+.row.cols-3 .card.stat .muted{
+  margin-bottom:8px;
+  font-size:13px;
+  line-height:1.2;
+}
+.row.cols-3 .card.stat b{
+  font-size:22px;
+  font-weight:700;
+  line-height:1.1;
+  margin:0;
+}
+.row.cols-2{grid-auto-rows:1fr}
+.row.cols-2 .card{min-height:380px;height:100%}
+.row .card > canvas{flex:1;min-height:260px}
+
+/* Уравнять размеры кнопок Импорт/Экспорт */
+.grid-sm>label.btn, .grid-sm>button.btn{
+  width:100%;
+  height:36px;
+  min-height:36px;
+  max-height:36px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+
+/* Контраст для селектов в плашках */
+.pill select{background:var(--chip);border:1px solid var(--grid);color:var(--text);padding:4px 8px;border-radius:8px}
+.pill input[type=checkbox]{vertical-align:middle;transform:translateY(1px)}
+.pill{gap:4px;padding:4px 8px}
+.pill select:focus{outline:none;border-color:var(--primary)}
+
+/* Селекты в модальном окне должны выглядеть так же */
+.modal .pill select{background:var(--chip);border:1px solid var(--grid);color:var(--text);padding:4px 8px;border-radius:8px}
+.modal select{background:var(--chip);border:1px solid var(--grid);color:var(--text)}
+
+/* Tooltip для графиков */
+#chartTip{
+  position:fixed;
+  pointer-events:none;
+  background:rgba(10,13,18,0.95);
+  backdrop-filter:blur(8px);
+  border:1px solid var(--grid);
+  color:var(--text);
+  padding:10px 12px;
+  border-radius:10px;
+  font-size:12px;
+  z-index:10000;
+  box-shadow:0 8px 32px rgba(0,0,0,0.6);
+  max-width:280px;
+  line-height:1.4;
+}
+
