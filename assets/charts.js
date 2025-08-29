@@ -40,6 +40,8 @@ function drawBarChart(c, labels, series, seriesNames){
     const x = leftPad + g*barGroupW + barGroupW/2
     ctx.fillText(labels[g], x, H-8*dpr)
   }
+  // Сохраняем геометрию и метки для надёжного определения группы по X
+  try{ c._barMeta = { labels:[...labels], leftPad, rightPad, barGroupW, groups } }catch(_){ }
   attachBarTooltip(c, bars, dpr)
 }
 
@@ -159,7 +161,17 @@ function formatShort(v){
 
 function attachBarTooltip(canvas, bars, dpr){
   let tip=document.getElementById('chartTip')
-  if(!tip){ tip=document.createElement('div'); tip.id='chartTip'; tip.style.display='none'; document.body.appendChild(tip) }
+  if(!tip){
+    tip=document.createElement('div');
+    tip.id='chartTip';
+    tip.style.display='none';
+    tip.style.pointerEvents='none';
+    tip.style.position='fixed';
+    tip.style.zIndex='9999';
+    document.body.appendChild(tip)
+  } else {
+    tip.style.pointerEvents='none'
+  }
   function findBar(mx,my){
     for(const b of bars){ 
       // Увеличиваем область клика: минимум 20px по высоте и добавляем отступы
@@ -190,24 +202,64 @@ function attachBarTooltip(canvas, bars, dpr){
 
   // Double-click to set month filter to clicked bar label
   canvas.ondblclick=(e)=>{
+    e.preventDefault(); e.stopPropagation();
     const rect=canvas.getBoundingClientRect()
     const mx=(e.clientX-rect.left)*dpr, my=(e.clientY-rect.top)*dpr
-    function findBar(mx,my){
+    function _findBar(mx,my){
       for(const b of bars){
-        const minHeight = 20 * dpr
-        const clickHeight = Math.max(b.h, minHeight)
-        const clickY = b.y - (clickHeight - b.h) / 2
-        const padding = 4 * dpr
-        if(mx >= b.x - padding && mx <= b.x + b.w + padding && 
-           my >= clickY - padding && my <= clickY + clickHeight + padding) return b
+        const minHeight = 24 * dpr
+        const clickHeight = Math.max(b.h||0, minHeight)
+        const clickY = (b.y||0) - (clickHeight - (b.h||0)) / 2
+        const padding = 12 * dpr
+        if(mx >= (b.x - padding) && mx <= (b.x + b.w + padding) && 
+           my >= (clickY - padding) && my <= (clickY + clickHeight + padding)) return b
       }
       return null
     }
-    const b=findBar(mx,my)
-    if(b && window.PERIOD_FILTER){
-      window.PERIOD_FILTER.mode='month'
-      window.PERIOD_FILTER.singleMonth=b.label
-      if(typeof window.render === 'function'){ window.render() }
+    let b=null
+    if(Array.isArray(bars) && bars.length){
+      b = _findBar(mx,my)
+    }
+    if(!b){
+      const meta = canvas._barMeta
+      if(meta && Array.isArray(meta.labels) && meta.labels.length){
+        const { leftPad, barGroupW, labels } = meta
+        const xLocal = mx - leftPad
+        const g = Math.floor(xLocal / barGroupW)
+        if(Number.isFinite(g) && g >= 0 && g < labels.length){
+          const bestLabel = labels[g]
+          b = { label: bestLabel, value: 0, series: 0 }
+        }
+      }
+    }
+    if(b && (typeof PERIOD_FILTER !== 'undefined')){
+      PERIOD_FILTER.mode='month'
+      PERIOD_FILTER.singleMonth=b.label
+      // Sync UI controls
+      try{
+        const monthRadio = document.querySelector('input[name="filterMode"][value="month"]')
+        if(monthRadio){
+          monthRadio.checked = true
+          if(typeof monthRadio.onchange === 'function') monthRadio.onchange()
+        }
+        const sel = document.getElementById('globalSingleMonth')
+        if(sel){
+          sel.value = b.label
+          if(typeof sel.onchange === 'function') sel.onchange()
+        }
+      }catch(_){ }
+      // Close modal if open
+      if(typeof window.closeExpanded === 'function'){
+        try{ window.closeExpanded() }catch(_){ }
+      }
+      // Update visuals
+      try{
+        if(typeof window.updateAllCharts === 'function'){
+          window.updateAllCharts()
+        }else if(typeof window.render === 'function'){
+          window.render()
+        }
+      }catch(_){ }
     }
   }
 }

@@ -95,7 +95,7 @@ tr:last-child td{border-bottom:none}
 
 /* Скролл для таблиц операций */
 .table-scroll{
-  max-height:320px;
+  max-height:360px;
   overflow-y:auto;
   border:1px solid var(--grid);
   border-radius:8px;

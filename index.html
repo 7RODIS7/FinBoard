@@ -60,7 +60,7 @@ function toggleTheme() {
 let HELP_VISIBLE = false
 
 // ===== УПРАВЛЕНИЕ ТАБЛИЦЕЙ ОПЕРАЦИЙ =====
-let RECENT_LIMIT = 7
+let RECENT_LIMIT = 8
 let SEARCH_TEXT = ''
 
 function getFilteredAndSearchedTransactions() {
@@ -643,6 +643,8 @@ function bindMain(){
     // Обновляем только таблицу операций без полного рендера
     updateRecentOperationsTable()
   }
+  // Сделаем доступным глобально для вызовов извне (например, из обработчиков графиков)
+  window.updateAllCharts = updateAllCharts
   
   function updateStats(){
     const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
@@ -1119,7 +1121,36 @@ function parseXmlTransactions(xmlText){
     }
     if(/^[−–—-]/.test(String(amtObj.value).trim())) amt = -Math.abs(Math.abs(amt));
     const d = parseDateFlexible(dateStr); if(!d) continue;
-    const desc = getFirstText(n, descTags) || '';
+    // Составляем информативное описание из NAME_R / REM_II / REM_I / TR_NAME
+    function getTagText(node, tag){
+      const el = node.getElementsByTagName(tag)[0] || node.getElementsByTagName(String(tag).toLowerCase())[0]
+      return (el && el.textContent) ? el.textContent.trim() : ''
+    }
+    function isTechnicalCode(s){
+      if(!s) return false
+      const v = String(s).trim()
+      // Примеры: P2800093-51684383-039309-2025-07-29, WAY4BOOK-07-01-2025... и др. Много групп через «-» и без пробелов
+      const technicalId = /^(?:[A-ZА-Я0-9]+-){2,}[A-ZА-Я0-9-]+(?:-\d{4}-\d{2}-\d{2})?$/
+      // Короткие «коды» без пробелов и почти без буквенных слов
+      const mostlyCode = /^[A-ZА-Я0-9\-_.]{10,}$/
+      return technicalId.test(v) || (mostlyCode.test(v) && !/\s/.test(v))
+    }
+    const trName = getTagText(n,'TR_NAME')
+    const nameR  = getTagText(n,'NAME_R')
+    const remI   = getTagText(n,'REM_I')
+    const remII  = getTagText(n,'REM_II')
+    const reference = getTagText(n,'REFERENCE')
+    const genericTrNames = new Set(['КАРТОВА ТРАНЗАКЦИЯ','ТАКСА МЕЖДУБ.ПРЕВОД','ТАКСА ИЗХ. ВАЛУТЕН ПРЕВОД','ИЗХОДЯЩ ВАЛУТЕН ПРЕВОД СЕПА','ИЗХОДЯЩ ПРЕВОД В ЛВ','ПРЕВОД','ТАКСА ОБСЛУЖВАНЕ'])
+    const parts=[]
+    if(nameR) parts.push(nameR)
+    if(remII && !isTechnicalCode(remII)) parts.push(remII)
+    if(remI && !isTechnicalCode(remI)) parts.push(remI)
+    if(trName && !genericTrNames.has(trName)) parts.push(trName)
+    let desc = parts.filter(Boolean).join(' | ')
+    if(!desc){
+      // Фолбэк: берём то, что было бы по умолчанию, либо reference
+      desc = getFirstText(n, descTags) || reference || ''
+    }
     const curr = amtObj.currency || getFirstText(n, currencyTags) || (amtObj.node && (amtObj.node.getAttribute('ccy')||amtObj.node.getAttribute('currency')||amtObj.node.getAttribute('curr')));
     if(curr && !detectedCurrency) detectedCurrency = String(curr).trim().toUpperCase();
     txs.push({id:uid(),date:d.toISOString().slice(0,10),desc:String(desc).trim(),amount:amt,category:null,source:'import'});
