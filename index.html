@@ -62,10 +62,20 @@ let HELP_VISIBLE = false
 // ===== УПРАВЛЕНИЕ ТАБЛИЦЕЙ ОПЕРАЦИЙ =====
 let RECENT_LIMIT = 8
 let SEARCH_TEXT = ''
+let CAT_FILTER = 'all'
 
 function getFilteredAndSearchedTransactions() {
   let filtered = filteredTransactions()
   
+  // Фильтр по категории (глобальный)
+  if (CAT_FILTER && CAT_FILTER !== 'all') {
+    filtered = filtered.filter(t => {
+      const cat = t.category || ''
+      if (CAT_FILTER === '__none__') return !cat
+      return cat === CAT_FILTER
+    })
+  }
+
   if (SEARCH_TEXT.trim()) {
     const searchLower = SEARCH_TEXT.toLowerCase()
     filtered = filtered.filter(t => {
@@ -143,6 +153,8 @@ function ensureVault(v){
     if(!Array.isArray(v.transactions)) v.transactions=[]
     if(!v.adjustments || typeof v.adjustments!=='object') v.adjustments={}
     if(!v.currency) v.currency='BGN'
+    if(!Array.isArray(v.categories)) v.categories=[]
+    if(!Array.isArray(v.catRules)) v.catRules=[]
     return v
   }catch{ return emptyVault() }
 }
@@ -162,8 +174,13 @@ async function saveVault(){
 
 // Полный сброс данных и UI перед новым импортом
 function resetBeforeImport(kind){
+  // Сохраняем категории и правила между импортами
+  const preservedCats = (STATE?.vault?.categories)||[]
+  const preservedRules = (STATE?.vault?.catRules)||[]
   try{ localStorage.removeItem(LS_KEY) }catch(e){}
   STATE = {unlocked:true, pass:null, vault: emptyVault()}
+  if(Array.isArray(preservedCats) && preservedCats.length) STATE.vault.categories = preservedCats
+  if(Array.isArray(preservedRules) && preservedRules.length) STATE.vault.catRules = preservedRules
   window.UI = {}
   // Для импорта хранилища также очистим выбор XML
   if(kind==='vault'){
@@ -247,11 +264,62 @@ function parseCSV(text){
 }
 
 // ===== МОДЕЛЬ ДАННЫХ =====
+function defaultCategoriesAndRules(){
+  const categories = [
+    'Продукты',
+    'Кафе и рестораны',
+    'Аптека и здоровье',
+    'Топливо и авто',
+    'Связь и интернет',
+    'Одежда и товары',
+    'Дом и быт',
+    'Развлечения',
+    'Красота',
+    'Игры и электроника',
+    'Зарплата',
+    'Аренда',
+    'Комиссии',
+    'Переводы'
+  ]
+  const pairs = [
+    // Продукты / супермаркеты
+    ['lidl','Продукты'],['kaufland','Продукты'],['ebag','Продукты'],['fantastico','Продукты'],['plodove i zelenchutsi','Продукты'],
+    // Кафе/рестораны
+    ['ma baker','Кафе и рестораны'],['soho cafe','Кафе и рестораны'],['gorski kanton','Кафе и рестораны'],['tera burger','Кафе и рестораны'],['sen viet','Кафе и рестораны'],['praga','Кафе и рестораны'],['fresh and fruits','Кафе и рестораны'],['yunak coffee','Кафе и рестораны'],['amora dzhelato','Кафе и рестораны'],
+    // Аптека и здоровье
+    ['sopharmacy','Аптека и здоровье'],['pharma choice','Аптека и здоровье'],['kazakov dental','Аптека и здоровье'],
+    // Топливо и авто / сервисы / доставка
+    ['oil trade 78','Топливо и авто'],['sis invest auto','Топливо и авто'],['speedy','Топливо и авто'],
+    // Связь
+    ['vivacom','Связь и интернет'],
+    // Одежда/товары/дети
+    ['pepko','Одежда и товары'],['jumbo','Одежда и товары'],
+    // Дом и быт
+    ['bedroom gallery','Дом и быт'],['vodolei 10','Дом и быт'],['linos trading','Дом и быт'],['dims-92','Дом и быт'],
+    // Развлечения/парки
+    ['kokolandia','Развлечения'],['lazy park','Развлечения'],['yuzhen park','Развлечения'],['kamelot','Развлечения'],['sail with me','Развлечения'],
+    // Красота
+    ['diamond nail studio','Красота'],
+    // Игры/электроника
+    ['pulsar','Игры и электроника'],
+    // Зарплата / доход
+    ['sitecore bulgaria','Зарплата'],['бисера','Зарплата'],
+    // Аренда
+    ['наем','Аренда'],
+    // Комиссии
+    ['такса','Комиссии'],
+    // Переводы
+    ['превод','Переводы'],['sepa','Переводы'],
+  ]
+  const catRules = pairs.map(([m,c])=>({id:uid(), match:m, category:c}))
+  return {categories, catRules}
+}
 function emptyVault(){
   return {
     currency:'BGN',
     transactions:[], // {id,date:ISO,desc,amount:number,category?:string,source:'import'|'manual'}
     adjustments:{}, // { 'YYYY-MM': number }
+    ...defaultCategoriesAndRules(),
     createdAt: new Date().toISOString(),
     version:1
   }
@@ -368,6 +436,18 @@ function sideUI(){
   </div>
 
   <div class="card">
+    <h3>Категории</h3>
+    <div class="hr"></div>
+    <div class="grid-sm">
+      <label class="btn" for="inputImportCats">Импорт</label>
+      <button id="btnExportCats" class="btn">Экспорт</button>
+      <button id="btnOpenCats2" class="btn">Открыть</button>
+      <input id="inputImportCats" type="file" accept="application/json,.json" class="hidden" />
+    </div>
+    <div class="help" style="margin-top:8px">JSON с полями <code>categories</code> и <code>catRules</code>.</div>
+  </div>
+
+  <div class="card">
     <h3>Импорт выписки UBB (XML)</h3>
     <div class="hr"></div>
     
@@ -426,7 +506,7 @@ function mainUI(){
   <div class="card filter-card" style="margin-top:12px">
     <div class="filter-header">
       <h3>Фильтр операций</h3>
-      <button id="btnOpenAdd" class="primary">Добавить запись</button>
+      <div class="inline"><button id="btnOpenCats" class="btn">Категории</button><button id="btnOpenAdd" class="primary">Добавить запись</button></div>
     </div>
     
     <div class="filter-body">
@@ -506,7 +586,6 @@ function mainUI(){
     <div class="card">
       <div class="controls"><b>Анализ расходов</b>
         <span class="right"></span>
-        <label class="pill">Тип<select id="pieMode" style="margin-left:6px"><option value="income_expense">Доходы/Расходы</option><option value="categories">По категориям</option></select></label>
         <button class="icon-btn" title="Развернуть" data-expand="pie" style="margin-left:8px">⤢</button>
       </div>
       <canvas id="pie"></canvas>
@@ -516,6 +595,7 @@ function mainUI(){
         <b>Операции</b>
         <span class="right"></span>
         <label class="pill" style="margin-left:8px">Последние <input id="recentLimit" type="number" min="1" max="50" value="${RECENT_LIMIT}" style="width:60px;margin-left:4px"> из <span id="recentTotalCount">${allSearched.length}</span></label>
+        <select id="catFilter" title="Категория" class="filter-select" style="width:auto"><option value="all">Все категории</option><option value="__none__">Без категории</option>${(STATE.vault.categories||[]).map(c=>`<option ${CAT_FILTER===c?'selected':''} value="${c}">${c}</option>`).join('')}</select>
         <input id="searchInput" type="text" placeholder="Поиск по описанию..." value="${SEARCH_TEXT}" style="width:180px">
         <button class="icon-btn" title="Развернуть" data-expand="recent" style="margin-left:8px">⤢</button>
       </div>
@@ -523,7 +603,7 @@ function mainUI(){
         <table>
           <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
           <tbody>
-            ${recent.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')}
+            ${recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -560,46 +640,21 @@ function bindMain(){
   drawBarChart($('#bar'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
   drawLineChart($('#line'), lineLabels, lineNets)
 
-  const modeSelect=$('#pieMode')
   function drawPieChart(){
-    const mode = modeSelect ? modeSelect.value : 'income_expense'
     const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
-    
-    // Агрегируем данные по всем месяцам в фильтре
-    let totalIncome = 0, totalExpense = 0, totalByCat = {}
-    filteredMonths.forEach(m => {
-      const monthData = filteredByM[m]
-      if(monthData) {
-        totalIncome += (TX_FILTER==='expense') ? 0 : (monthData.income || 0)
-        totalExpense += (TX_FILTER==='income') ? 0 : (monthData.expense || 0)
-      }
-    })
-    // Пересчёт категорий через отфильтрованные транзакции
-    const txForCats = filteredTransactions()
+    // Суммируем только расходы по категориям на основе фильтрованных транзакций
+    const totalByCat = {}
+    const txForCats = filteredTransactions().filter(t => (t.amount||0) < 0)
     txForCats.forEach(t=>{
       const cat = t.category||'Без категории'
       totalByCat[cat] = (totalByCat[cat]||0) + Math.abs(t.amount||0)
     })
-    
-    if(mode === 'categories'){
-      const labels2=Object.keys(totalByCat)
-      const vals=labels2.map(k=>totalByCat[k])
-      drawDonutChart($('#pie'), labels2, vals)
-    }else{
-      drawDonutChart($('#pie'), ['Доходы','Расходы'], [totalIncome, totalExpense])
-    }
+    const labels2=Object.keys(totalByCat)
+    const vals=labels2.map(k=>totalByCat[k])
+    drawDonutChart($('#pie'), labels2, vals)
   }
   
   drawPieChart() // Первоначальная отрисовка
-  
-  if(modeSelect){
-    modeSelect.value = (window.UI && UI.pieCats) ? 'categories' : 'income_expense'
-    modeSelect.onchange=()=>{ 
-      window.UI=window.UI||{}; 
-      UI.pieCats = modeSelect.value === 'categories'
-      drawPieChart()
-    }
-  }
   // Инициализировать видимость контролов по умолчанию (год активен)
   const periodControls = $('#periodControls')
   const monthControls = $('#monthControls')
@@ -677,7 +732,7 @@ function bindMain(){
     const curr = STATE.vault.currency
     const tbody = $('#main .table-scroll tbody')
     if(tbody) {
-      tbody.innerHTML = recent.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')
+      tbody.innerHTML = recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
       // Переназначаем обработчики удаления
       $$('[data-del-tx]', tbody).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
       // Обновляем счётчик "из y"
@@ -744,11 +799,13 @@ function bindMain(){
   }
 
   const btn=$('#btnOpenAdd'); if(btn) btn.onclick=openAddModal
+  const btnCats=$('#btnOpenCats'); if(btnCats) btnCats.onclick=openCategoriesModal
   $$('[data-expand]').forEach(b=>{ b.onclick=()=>{ openExpanded(b.getAttribute('data-expand')) } })
   $$('[data-del-tx]').forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
   
   // Обработчики для таблицы операций
   const recentLimitInput = $('#recentLimit')
+  const catFilterSel = $('#catFilter')
   const searchInput = $('#searchInput')
   
   if(recentLimitInput) {
@@ -759,6 +816,9 @@ function bindMain(){
         updateRecentOperationsTable()
       }
     }
+  }
+  if(catFilterSel){
+    catFilterSel.onchange = () => { CAT_FILTER = catFilterSel.value; updateRecentOperationsTable(); drawPieChart(); }
   }
   
   if(searchInput) {
@@ -808,15 +868,41 @@ function bindSide(){
     if(!data){toast('Нет данных для экспорта','warn');return}
     download(`ofb-vault-${new Date().toISOString().slice(0,10)}.json`, data)
   }
+  // Категории импорт/экспорт
+  $('#btnExportCats').onclick=()=>{
+    const payload = { categories: STATE.vault.categories||[], catRules: STATE.vault.catRules||[] }
+    download(`ofb-categories-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(payload,null,2))
+  }
+  $('#inputImportCats').onchange=async (e)=>{
+    const f=e.target.files[0]; if(!f) return
+    const t=await f.text();
+    try{
+      const parsed = JSON.parse(t)
+      if(!parsed || typeof parsed!== 'object') throw new Error('bad json')
+      const cats = Array.isArray(parsed.categories) ? parsed.categories : []
+      const rules = Array.isArray(parsed.catRules) ? parsed.catRules : []
+      STATE.vault.categories = cats
+      // нормализуем правила (id может отсутствовать)
+      STATE.vault.catRules = rules.map(r=>({id: r.id || uid(), match: String(r.match||'').trim(), category: String(r.category||'').trim()})).filter(r=>r.match && r.category)
+      await saveVault(); toast('Категории и правила импортированы');
+    }catch(err){ toast('Некорректный JSON категорий','warn') }
+    e.target.value=''
+  }
+  const btnOpenCats2=$('#btnOpenCats2'); if(btnOpenCats2) btnOpenCats2.onclick=openCategoriesModal
   $('#inputImportVault').onchange=async (e)=>{
     const f=e.target.files[0]; if(!f) return
     const t=await f.text();
     try{
       const parsed = ensureVault(JSON.parse(t))
-      // Полностью очистим предыдущее состояние перед загрузкой нового
+      // Сохраним текущие категории/правила
+      const preservedCats = (STATE?.vault?.categories)||[]
+      const preservedRules = (STATE?.vault?.catRules)||[]
+      // Полностью очистим предыдущее состояние перед загрузкой нового, но восстановим cats/rules
       resetBeforeImport('vault')
-      localStorage.setItem(LS_KEY, JSON.stringify(parsed))
-      STATE.vault = parsed
+      STATE.vault = ensureVault(parsed)
+      if(Array.isArray(preservedCats) && preservedCats.length) STATE.vault.categories = preservedCats
+      if(Array.isArray(preservedRules) && preservedRules.length) STATE.vault.catRules = preservedRules
+      localStorage.setItem(LS_KEY, JSON.stringify(STATE.vault))
       toast('Хранилище импортировано.')
       render()
     }catch(err){
@@ -1003,6 +1089,17 @@ async function doImportXml(){
     }
     
     addTransactions(res.transactions);
+    // Автокатегоризация по правилам (если есть)
+    try{
+      if(Array.isArray(STATE.vault.catRules) && STATE.vault.catRules.length){
+        const rules = STATE.vault.catRules.map(r=>({match:String(r.match||'').toLowerCase(), category:r.category}))
+        for(const t of STATE.vault.transactions){
+          const hay = [t.desc, t.trName, t.nameR, t.remI, t.remII].map(x=>String(x||'').toLowerCase()).join(' | ')
+          const hit = rules.find(r=> r.match && hay.includes(r.match))
+          if(hit){ t.category = hit.category }
+        }
+      }
+    }catch(_){ }
     if(res.currency){ 
       STATE.vault.currency = res.currency;
     }
@@ -1071,7 +1168,7 @@ function parseXmlTransactions(xmlText){
   const amountTags = tagsLower(['amount','amt','sum','value','transactionamount','creditamount','debitamount','entryamount','bookedamount','instructedamount','amount_c','amount_d','ценность','сумма','AMOUNT_C','AMOUNT_D'])
   const dateTags = tagsLower(['date','bookingdate','valuedate','posted','postdate','tradedate','transdate','entrydate','post_date','дата','POST_DATE'])
   const indicatorTags = tagsLower(['creditdebitindicator','crdr','dc','drcr','debitcredit','direction','indicator','sign','признак','тип'])
-  const descTags = tagsLower(['description','narrative','details','memo','text','remittanceinformation','purpose','name','payee','merchant','counterparty','beneficiary','payer','receiver','reference','info','note','назначение','описание','TR_NAME','NAME_R','REM_I','REM_II'])
+  const descTags = tagsLower(['description','narrative','details','memo','text','remittanceinformation','purpose','name','payee','merchant','counterparty','beneficiary','payer','receiver','reference','info','note','назначение','описание','NAME_R','REM_I','REM_II'])
   const currencyTags = tagsLower(['currency','ccy','curr','валюта'])
   const all = Array.from(doc.querySelectorAll('*'));
   const candidates = new Map();
@@ -1145,15 +1242,15 @@ function parseXmlTransactions(xmlText){
     if(nameR) parts.push(nameR)
     if(remII && !isTechnicalCode(remII)) parts.push(remII)
     if(remI && !isTechnicalCode(remI)) parts.push(remI)
-    if(trName && !genericTrNames.has(trName)) parts.push(trName)
+    // TR_NAME не включаем в описание; используем как доп. информацию в тултипах
     let desc = parts.filter(Boolean).join(' | ')
     if(!desc){
-      // Фолбэк: берём то, что было бы по умолчанию, либо reference
-      desc = getFirstText(n, descTags) || reference || ''
+      // Фолбэк: reference или пусто; TR_NAME не используем для описания
+      desc = reference || ''
     }
     const curr = amtObj.currency || getFirstText(n, currencyTags) || (amtObj.node && (amtObj.node.getAttribute('ccy')||amtObj.node.getAttribute('currency')||amtObj.node.getAttribute('curr')));
     if(curr && !detectedCurrency) detectedCurrency = String(curr).trim().toUpperCase();
-    txs.push({id:uid(),date:d.toISOString().slice(0,10),desc:String(desc).trim(),amount:amt,category:null,source:'import'});
+    txs.push({id:uid(),date:d.toISOString().slice(0,10),desc:String(desc).trim(),amount:amt,category:null,source:'import',trName: trName || null, nameR: nameR || null, remI: remI || null, remII: remII || null});
   }
   
   return {transactions:txs, currency:detectedCurrency};
@@ -1207,48 +1304,34 @@ function renderExpanded(key){
     drawLineChart($('#lineBig'), lineLabels, lineNets)
   }else if(key==='pie'){
     t.textContent='Анализ расходов'
-    if(rs){
-      rs.innerHTML = '<label class="pill" style="font-weight:normal;font-size:13px">Тип<select id="pieModeBig" style="margin-left:6px;font-size:13px"><option value="income_expense">Доходы/Расходы</option><option value="categories">По категориям</option></select></label>'
-    }
     c.innerHTML=`<canvas id="pieBig" style="height:64vh"></canvas>`
     
-    const modeSel=$('#pieModeBig')
     const draw=()=>{ 
-      const mode = modeSel ? modeSel.value : 'income_expense'
       const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
       
-      // Агрегируем данные по всем месяцам в фильтре
-      let totalIncome = 0, totalExpense = 0, totalByCat = {}
-      filteredMonths.forEach(m => {
-        const monthData = filteredByM[m]
-        if(monthData) {
-          totalIncome += (TX_FILTER==='expense') ? 0 : (monthData.income || 0)
-          totalExpense += (TX_FILTER==='income') ? 0 : (monthData.expense || 0)
-        }
+      // Пирог: только расходы по категориям
+      const totalByCat = {}
+      const tx = filteredTransactions().filter(t => (t.amount||0) < 0)
+      tx.forEach(t=>{
+        const cat=t.category||'Без категории'
+        totalByCat[cat]=(totalByCat[cat]||0)+Math.abs(t.amount||0)
       })
-      
-      if(mode === 'categories'){
-        const tx = filteredTransactions()
-        tx.forEach(t=>{
-          const cat=t.category||'Без категории'
-          totalByCat[cat]=(totalByCat[cat]||0)+Math.abs(t.amount||0)
-        })
-        const l=Object.keys(totalByCat)
-        const v=l.map(k=>totalByCat[k])
-        drawDonutChart($('#pieBig'), l, v) 
-      }else{
-        drawDonutChart($('#pieBig'), ['Доходы','Расходы'], [totalIncome, totalExpense])
-      }
+      const l=Object.keys(totalByCat)
+      const v=l.map(k=>totalByCat[k])
+      drawDonutChart($('#pieBig'), l, v) 
     }
-    if(modeSel) modeSel.value = (window.UI && UI.pieCats) ? 'categories' : 'income_expense'
     draw(); 
-    if(modeSel) modeSel.onchange=draw
   }else if(key==='recent'){
     const totalCount = getFilteredAndSearchedTransactions().length
     const expandLimit = totalCount // В expand режиме показываем все доступные записи
     t.textContent='Операции'
     if(rs){
-      rs.innerHTML = '<div style="display:flex;gap:8px;align-items:center"><input id="searchInputBig" type="text" placeholder="Поиск..." value="'+SEARCH_TEXT+'" style="width:180px;font-size:13px"></div>'
+      const catOptions = ['<option value="all">Все категории</option>','<option value="__none__">Без категории</option>'].concat((STATE.vault.categories||[]).map(c=>`<option ${CAT_FILTER===c?'selected':''} value="${c}">${c}</option>`)).join('')
+      rs.innerHTML = '<div style="display:flex;gap:8px;align-items:center">'
+        +'<button id="btnCopyOpsJson" class="btn">Скопировать описания (JSON)</button>'
+        +'<select id="catFilterBig" title="Категория" style="font-size:13px">'+catOptions+'</select>'
+        +'<input id="searchInputBig" type="text" placeholder="Поиск..." value="'+SEARCH_TEXT+'" style="width:180px;font-size:13px">'
+        +'</div>'
     }
     
     const updateBigTable = () => {
@@ -1257,7 +1340,7 @@ function renderExpanded(key){
       const tableContainer = c.querySelector('.table-scroll')
       
       if(tableContainer) {
-        tableContainer.querySelector('tbody').innerHTML = rows.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')
+        tableContainer.querySelector('tbody').innerHTML = rows.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
         // Переназначаем обработчики удаления
         $$('[data-del-tx]', tableContainer).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')); updateBigTable() } })
       }
@@ -1269,13 +1352,15 @@ function renderExpanded(key){
       <table>
         <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
         <tbody>
-          ${rows.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')}
+          ${rows.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>`
     
     // Добавляем обработчики для контролов в expand режиме
     const searchInputBig = $('#searchInputBig')
+    const catFilterBig = $('#catFilterBig')
+    const copyBtn = $('#btnCopyOpsJson')
     
     if(searchInputBig) {
       searchInputBig.oninput = () => {
@@ -1285,6 +1370,29 @@ function renderExpanded(key){
         if(normalSearchInput) normalSearchInput.value = SEARCH_TEXT
         updateBigTable()
         updateRecentOperationsTable()
+      }
+    }
+    if(catFilterBig){
+      catFilterBig.onchange = () => {
+        CAT_FILTER = catFilterBig.value
+        const normalCatSel = $('#catFilter')
+        if(normalCatSel) normalCatSel.value = CAT_FILTER
+        updateBigTable(); updateRecentOperationsTable(); drawPieChart()
+      }
+    }
+    if(copyBtn){
+      copyBtn.onclick = async () => {
+        try{
+          const data = getFilteredAndSearchedTransactions().map(t=>({
+            desc: t.desc||'',
+            trName: t.trName||null,
+            nameR: t.nameR||null,
+            remI: t.remI||null,
+            remII: t.remII||null
+          }))
+          await navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+          toast('JSON скопирован')
+        }catch(e){ toast('Не удалось скопировать','warn') }
       }
     }
     $$('[data-del-tx]', c).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })

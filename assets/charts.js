@@ -113,27 +113,83 @@ function drawDonutChart(c, labels, values){
   if(total<=0){ ctx.fillStyle='#9fb1c7'; ctx.textAlign='center'; ctx.font=`${12*dpr}px sans-serif`; ctx.fillText('Нет данных', cx, cy); return }
   const palette = genPalette(labels.length)
   let start=-Math.PI/2
+  const slices=[]
   for(let i=0;i<labels.length;i++){
     const val=values[i]
     const ang= (val/total)*Math.PI*2
     ctx.beginPath(); ctx.moveTo(cx,cy); ctx.fillStyle=palette[i]
     ctx.arc(cx,cy,r,start,start+ang); ctx.closePath(); ctx.fill()
+    slices.push({start,end:start+ang,label:labels[i],value:val,color:palette[i]})
     start+=ang
   }
   ctx.globalCompositeOperation='destination-out'
   ctx.beginPath(); ctx.arc(cx,cy,r*0.55,0,Math.PI*2); ctx.fill()
   ctx.globalCompositeOperation='source-over'
+  // Build legend entries sorted by value desc, but preserve slice colors
   const legX = 12*dpr, legY = 12*dpr
+  const entries = labels.map((label,i)=>({ label, value:values[i], color:palette[i], pct: ((values[i]/total)*100) }))
+    .sort((a,b)=> b.value - a.value)
   ctx.font=`${11*dpr}px sans-serif`; ctx.fillStyle='#c7d3e3'
   let y=legY
-  for(let i=0;i<labels.length;i++){
-    ctx.fillStyle=palette[i]
+  for(let i=0;i<entries.length;i++){
+    const e=entries[i]
+    ctx.fillStyle=e.color
     ctx.fillRect(legX,y-8*dpr,10*dpr,10*dpr)
     ctx.fillStyle='#c7d3e3'
-    const pct=((values[i]/total)*100).toFixed(1)
-    ctx.fillText(`${labels[i]} · ${pct}%`, legX+16*dpr, y)
+    ctx.fillText(`${e.label} · ${e.pct.toFixed(1)}%`, legX+16*dpr, y)
     y+=16*dpr
   }
+
+  // Tooltip on hover
+  let tip=document.getElementById('chartTip')
+  if(!tip){ tip=document.createElement('div'); tip.id='chartTip'; tip.style.display='none'; tip.style.pointerEvents='none'; tip.style.position='fixed'; tip.style.zIndex='9999'; document.body.appendChild(tip) }
+  c.onmousemove=(e)=>{
+    const rect=c.getBoundingClientRect()
+    const mx=(e.clientX-rect.left)*dpr, my=(e.clientY-rect.top)*dpr
+    const ang=Math.atan2(my-cy, mx-cx)
+    const dist=Math.hypot(mx-cx,my-cy)
+    const a = ang< -Math.PI/2 ? ang+Math.PI*2 : ang
+    if(dist>=r*0.55 && dist<=r){
+      const s = slices.find(s=> a>=s.start && a<=s.end)
+      if(s){
+        const currency = window.STATE?.vault?.currency || 'BGN'
+        const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(s.value)
+        const pct = ((s.value/total)*100).toFixed(1)
+        tip.style.display='block'
+        tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${s.label}</div><div>${formattedValue} · ${pct}%</div>`
+        tip.style.left=(e.clientX+12)+'px'
+        tip.style.top=(e.clientY+12)+'px'
+        return
+      }
+    }
+    tip.style.display='none'
+  }
+  c.onmouseleave=()=>{ let t=document.getElementById('chartTip'); if(t) t.style.display='none' }
+
+  // Tooltip from legend hover (hit test on legend rows)
+  c.onmousemove = c.onmousemove // keep slice hover
+  const onLegendMove=(e)=>{
+    const rect=c.getBoundingClientRect()
+    const lx=(e.clientX-rect.left)*dpr, ly=(e.clientY-rect.top)*dpr
+    // Legend hitbox: each row height = 16*dpr, first row top at (legY - 8*dpr)
+    const rowH = 16*dpr
+    const top0 = legY - 8*dpr
+    const legWidth = Math.max(220*dpr, ctx.measureText('MMMMMMMMMMMMMMMMMMMM').width)
+    if(lx>=legX && lx<=legX+legWidth && ly>=top0 && ly<=top0 + entries.length*rowH){
+      const idx = Math.floor((ly - top0)/rowH)
+      if(idx>=0 && idx<entries.length){
+        const currency = window.STATE?.vault?.currency || 'BGN'
+        const eEntry = entries[idx]
+        const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(eEntry.value)
+        tip.style.display='block'
+        tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${eEntry.label}</div><div>${formattedValue} · ${eEntry.pct.toFixed(1)}%</div>`
+        tip.style.left=(e.clientX+12)+'px'
+        tip.style.top=(e.clientY+12)+'px'
+        return
+      }
+    }
+  }
+  c.addEventListener('mousemove', onLegendMove)
 }
 
 function genPalette(n){
