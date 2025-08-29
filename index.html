@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- Смягчённый CSP для работы через file:// -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' blob: data: file:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-src 'none'">
-  <title>Офлайн дашборд финансов</title>
+  <title>FinBoard</title>
   <link rel="stylesheet" href="assets/styles.css" />
   <script src="assets/help.js"></script>
   <script src="assets/xml.js"></script>
@@ -15,10 +15,18 @@
 <body>
 <div class="app">
   <header>
-    <h1>Финансовый дашборд</h1>
-    <span class="tag" id="vaultTag">локально</span>
+    <h1>FinBoard</h1>
     <span class="right"></span>
-    <a class="btn" href="help.html">Справка</a>
+    <button id="btnClearStorage" class="header-clear" title="Очистить localStorage">🗑 Очистить данные</button>
+    <div id="themeToggle" class="theme-toggle" title="Переключить тему">
+      <span class="theme-icon">
+        <span class="icon sun">☀️</span>
+        <span class="icon moon">🌙</span>
+      </span>
+    </div>
+    <div id="helpToggle" class="help-toggle" title="Показать справку">
+      <span class="help-icon">❓</span>
+    </div>
     <button id="btnLock" class="btn" style="display:none">Заблокировать</button>
   </header>
 
@@ -33,6 +41,59 @@ const $$ = (sel,root=document)=>Array.from(root.querySelectorAll(sel))
 const fmt = new Intl.NumberFormat('ru-RU',{style:'currency',currency:'BGN',maximumFractionDigits:2})
 const monthFmt = new Intl.DateTimeFormat('ru-RU',{year:'numeric',month:'2-digit'})
 const dateFmt = new Intl.DateTimeFormat('ru-RU')
+
+// ===== УПРАВЛЕНИЕ ТЕМОЙ =====
+function initTheme() {
+  const savedTheme = localStorage.getItem('finboard_theme') || 'dark'
+  document.documentElement.setAttribute('data-theme', savedTheme)
+}
+
+function toggleTheme() {
+  const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark'
+  const newTheme = currentTheme === 'dark' ? 'light' : 'dark'
+  document.documentElement.setAttribute('data-theme', newTheme)
+  localStorage.setItem('finboard_theme', newTheme)
+  toast(`Переключено на ${newTheme === 'dark' ? 'темную' : 'светлую'} тему`)
+}
+
+// ===== УПРАВЛЕНИЕ СПРАВКОЙ =====
+let HELP_VISIBLE = false
+
+// ===== УПРАВЛЕНИЕ ТАБЛИЦЕЙ ОПЕРАЦИЙ =====
+let RECENT_LIMIT = 7
+let SEARCH_TEXT = ''
+
+function getFilteredAndSearchedTransactions() {
+  let filtered = filteredTransactions()
+  
+  if (SEARCH_TEXT.trim()) {
+    const searchLower = SEARCH_TEXT.toLowerCase()
+    filtered = filtered.filter(t => {
+      const desc = (t.desc || '').toLowerCase()
+      const category = (t.category || '').toLowerCase()
+      return desc.includes(searchLower) || category.includes(searchLower)
+    })
+  }
+  
+  return filtered.sort((a,b) => new Date(b.date) - new Date(a.date))
+}
+
+function toggleHelp() {
+  HELP_VISIBLE = !HELP_VISIBLE
+  const helpToggle = $('#helpToggle')
+  const helpBlock = $('#helpBlock')
+  
+  if(helpToggle) {
+    helpToggle.classList.toggle('active', HELP_VISIBLE)
+    helpToggle.title = HELP_VISIBLE ? 'Скрыть справку' : 'Показать справку'
+  }
+  
+  if(helpBlock) {
+    helpBlock.style.display = HELP_VISIBLE ? 'block' : 'none'
+  }
+  
+  toast(HELP_VISIBLE ? 'Справка показана' : 'Справка скрыта')
+}
 
 const b64 = {
   enc: arr => btoa(String.fromCharCode(...arr)),
@@ -72,7 +133,9 @@ const LS_KEY = 'ofb_vault'
 let STATE = { unlocked:true, pass:null, vault: ensureVault(loadVaultPlain()) }
 
 // ===== ФИЛЬТР ПЕРИОДА =====
-let PERIOD_FILTER = { fromMonth: null, toMonth: null, mode: 'period', singleMonth: null }
+let PERIOD_FILTER = { fromMonth: null, toMonth: null, mode: 'year', singleMonth: null, singleYear: null }
+// Фильтр по типу операций: 'all' | 'income' | 'expense'
+let TX_FILTER = (window.UI && UI.txFilter) ? UI.txFilter : 'all'
 
 function ensureVault(v){
   try{
@@ -235,6 +298,11 @@ function filteredMonthBuckets(){
     // Режим периода
     const filteredMonths = months.filter(m => m >= PERIOD_FILTER.fromMonth && m <= PERIOD_FILTER.toMonth)
     return {months: filteredMonths, byM}
+  } else if(PERIOD_FILTER.mode === 'year' && PERIOD_FILTER.singleYear) {
+    // Режим года
+    const y = PERIOD_FILTER.singleYear
+    const filteredMonths = months.filter(m => m.startsWith(y + '-'))
+    return {months: filteredMonths, byM}
   }
   
   return {months, byM}
@@ -245,22 +313,40 @@ function filteredTransactions(){
     // Режим одного месяца
     return STATE.vault.transactions.filter(t => {
       const month = monthKey(new Date(t.date))
-      return month === PERIOD_FILTER.singleMonth
+      if(month !== PERIOD_FILTER.singleMonth) return false
+      if(TX_FILTER==='income') return (t.amount||0) >= 0
+      if(TX_FILTER==='expense') return (t.amount||0) < 0
+      return true
     })
   } else if(PERIOD_FILTER.mode === 'period' && PERIOD_FILTER.fromMonth && PERIOD_FILTER.toMonth) {
     // Режим периода
     return STATE.vault.transactions.filter(t => {
       const month = monthKey(new Date(t.date))
-      return month >= PERIOD_FILTER.fromMonth && month <= PERIOD_FILTER.toMonth
+      if(!(month >= PERIOD_FILTER.fromMonth && month <= PERIOD_FILTER.toMonth)) return false
+      if(TX_FILTER==='income') return (t.amount||0) >= 0
+      if(TX_FILTER==='expense') return (t.amount||0) < 0
+      return true
+    })
+  } else if(PERIOD_FILTER.mode === 'year' && PERIOD_FILTER.singleYear) {
+    // Режим года
+    return STATE.vault.transactions.filter(t => {
+      const m = monthKey(new Date(t.date))
+      if(!m.startsWith(PERIOD_FILTER.singleYear + '-')) return false
+      if(TX_FILTER==='income') return (t.amount||0) >= 0
+      if(TX_FILTER==='expense') return (t.amount||0) < 0
+      return true
     })
   }
   
-  return [...STATE.vault.transactions]
+  return [...STATE.vault.transactions].filter(t=>{
+    if(TX_FILTER==='income') return (t.amount||0) >= 0
+    if(TX_FILTER==='expense') return (t.amount||0) < 0
+    return true
+  })
 }
 
 // ===== РЕНДЕР =====
 function render(){
-  $('#vaultTag').textContent = `хранилище: локально (${STATE.vault?.currency||'—'})`
   $('#side').innerHTML = sideUI()
   $('#main').innerHTML = mainUI()
   bindSide()
@@ -270,27 +356,19 @@ function render(){
 // выключено: экран входа не используется в режиме без пароля
 
 function sideUI(){
-  const {currency}=STATE.vault
   return `
   <div class="card">
-    <h3>Файлы хранилища</h3>
+    <h3>Пользовательские выписки</h3>
     <div class="hr"></div>
     <div class="grid-sm">
       <label class="btn" for="inputImportVault">Импорт</label>
       <button id="btnExportVault" class="btn">Экспорт</button>
       <input id="inputImportVault" type="file" accept="application/json,.json" class="hidden" />
     </div>
-    <div class="hr"></div>
-    <label for="selectCurrency">Валюта интерфейса</label>
-    <select id="selectCurrency">
-      ${['BGN','EUR','USD','UAH'].map(c=>`<option ${c===currency?'selected':''}>${c}</option>`).join('')}
-    </select>
-    <div class="hr"></div>
-    <button id="btnResetApp" class="danger btn-small">Сбросить приложение (удалить localStorage)</button>
   </div>
 
   <div class="card">
-    <h3>Импорт выписки (XML)</h3>
+    <h3>Импорт выписки UBB (XML)</h3>
     <div class="hr"></div>
     
     <!-- Зона выбора файла -->
@@ -325,51 +403,96 @@ function mainUI(){
   const curr = STATE.vault.currency
   
   // Устанавливаем период по умолчанию если не задан
-  if(!PERIOD_FILTER.fromMonth && months.length > 0){
-    PERIOD_FILTER.fromMonth = months[0]
-    PERIOD_FILTER.toMonth = months[months.length-1]
-    PERIOD_FILTER.singleMonth = lastM || months[months.length-1]
+  if(months.length > 0){
+    const years = Array.from(new Set(months.map(m=>m.split('-')[0]))).sort()
+    // populate years select later in bindMain
+    if(!PERIOD_FILTER.singleYear){ PERIOD_FILTER.singleYear = years[years.length-1] }
+    if(!PERIOD_FILTER.fromMonth){ PERIOD_FILTER.fromMonth = months[0] }
+    if(!PERIOD_FILTER.toMonth){ PERIOD_FILTER.toMonth = months[months.length-1] }
+    if(!PERIOD_FILTER.singleMonth){ PERIOD_FILTER.singleMonth = lastM || months[months.length-1] }
   }
   
   // Вычисляем статистику на основе фильтра
   const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
-  const totalIncome = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.income||0),0)
-  const totalExpense = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.expense||0),0)
+  const totalIncome = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='expense')?0:(filteredByM[m]?.income||0)),0)
+  const totalExpense = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='income')?0:(filteredByM[m]?.expense||0)),0)
   const totalNet = totalIncome - totalExpense
   
-  const recent = filteredTransactions().sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,7)
+  const allSearched = getFilteredAndSearchedTransactions()
+  const recent = allSearched.slice(0, RECENT_LIMIT)
 
   return `
-  ${helpHTML()}
-  <div class="card" style="margin-top:12px">
-    <div class="inline">
-      <h3 style="margin:0">Фильтр операций</h3>
-      <span class="right"></span>
-      <button id="btnOpenAdd" class="primary">Добавить запись…</button>
+  <div id="helpBlock" style="display:none">${helpHTML()}</div>
+  <div class="card filter-card" style="margin-top:12px">
+    <div class="filter-header">
+      <h3>Фильтр операций</h3>
+      <button id="btnOpenAdd" class="primary">Добавить запись</button>
     </div>
-    <div class="hr"></div>
-    <div class="filter-layout">
-      <div class="filter-controls">
-        <div class="controls" style="margin-bottom:8px">
-          <label class="pill">
-            <input type="radio" name="filterMode" value="period" checked> Период
-          </label>
-          <label class="pill">
-            <input type="radio" name="filterMode" value="month"> Месяц
-          </label>
+    
+    <div class="filter-body">
+      <div class="filter-controls-grid">
+        <div class="filter-section">
+          <label class="filter-label">Тип операций</label>
+          <select id="txType" class="filter-select">
+            <option value="all">Все операции</option>
+            <option value="income">Только доходы</option>
+            <option value="expense">Только расходы</option>
+          </select>
         </div>
-        <div id="periodControls" class="controls">
-          <label class="pill">От<select id="globalFromMonth" style="margin-left:6px">${months.map(m=>`<option ${m===PERIOD_FILTER.fromMonth?'selected':''}>${m}</option>`).join('')}</select></label>
-          <label class="pill" style="margin-left:8px">До<select id="globalToMonth" style="margin-left:6px">${months.map(m=>`<option ${m===PERIOD_FILTER.toMonth?'selected':''}>${m}</option>`).join('')}</select></label>
+        
+        <div class="filter-section">
+          <label class="filter-label">Период</label>
+          <div class="filter-mode-tabs">
+            <label class="filter-tab">
+              <input type="radio" name="filterMode" value="year" ${PERIOD_FILTER.mode==='year'?'checked':''}>
+              <span>Год</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="filterMode" value="month" ${PERIOD_FILTER.mode==='month'?'checked':''}>
+              <span>Месяц</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="filterMode" value="period" ${PERIOD_FILTER.mode==='period'?'checked':''}>
+              <span>Диапазон</span>
+            </label>
+          </div>
         </div>
-        <div id="monthControls" class="controls" style="display:none">
-          <label class="pill">Месяц<select id="globalSingleMonth" style="margin-left:6px">${months.map(m=>`<option ${m===lastM?'selected':''}>${m}</option>`).join('')}</select></label>
+        
+        <div class="filter-section filter-params">
+          <div id="yearControls" class="filter-param-group">
+            <select id="globalYear" class="filter-select"></select>
+          </div>
+          <div id="monthControls" class="filter-param-group" style="display:none">
+            <select id="globalSingleMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.singleMonth?'selected':''}>${m}</option>`).join('')}</select>
+          </div>
+          <div id="periodControls" class="filter-param-group period-group" style="display:none">
+            <div class="period-inputs">
+              <div class="period-input">
+                <label>От</label>
+                <select id="globalFromMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.fromMonth?'selected':''}>${m}</option>`).join('')}</select>
+              </div>
+              <div class="period-input">
+                <label>До</label>
+                <select id="globalToMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.toMonth?'selected':''}>${m}</option>`).join('')}</select>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="filter-stats">
-        <div class="card stat"><span class="muted">Доходы</span><b id="incomeValue" class="ok">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalIncome)}</b></div>
-        <div class="card stat"><span class="muted">Расходы</span><b id="expenseValue" style="color:var(--danger)">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalExpense)}</b></div>
-        <div class="card stat"><span class="muted">Итог</span><b id="netValue" style="color:${totalNet>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalNet)}</b></div>
+      
+      <div class="filter-stats-row">
+        <div class="stat-card income">
+          <span class="stat-label">Доходы</span>
+          <span id="incomeValue" class="stat-value">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalIncome)}</span>
+        </div>
+        <div class="stat-card expense">
+          <span class="stat-label">Расходы</span>
+          <span id="expenseValue" class="stat-value">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalExpense)}</span>
+        </div>
+        <div class="stat-card net ${totalNet>=0?'positive':'negative'}">
+          <span class="stat-label">Итого</span>
+          <span id="netValue" class="stat-value">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalNet)}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -389,7 +512,13 @@ function mainUI(){
       <canvas id="pie"></canvas>
     </div>
     <div class="card">
-      <div class="controls"><b>Недавние операции</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="recent" style="margin-left:8px">⤢</button></div>
+      <div class="controls">
+        <b>Операции</b>
+        <span class="right"></span>
+        <label class="pill" style="margin-left:8px">Последние <input id="recentLimit" type="number" min="1" max="50" value="${RECENT_LIMIT}" style="width:60px;margin-left:4px"> из <span id="recentTotalCount">${allSearched.length}</span></label>
+        <input id="searchInput" type="text" placeholder="Поиск по описанию..." value="${SEARCH_TEXT}" style="width:180px">
+        <button class="icon-btn" title="Развернуть" data-expand="recent" style="margin-left:8px">⤢</button>
+      </div>
       <div class="table-scroll">
         <table>
           <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
@@ -414,12 +543,19 @@ function bindMain(){
   // Для столбчатой диаграммы используем фильтрованные данные
   const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
   const barLabels = filteredMonths
-  const barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
-  const barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+  let barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
+  let barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+  if(TX_FILTER==='income'){ barExpenses = barExpenses.map(()=>0) }
+  if(TX_FILTER==='expense'){ barIncomes = barIncomes.map(()=>0) }
   
   // Для линейной диаграммы используем фильтрованные данные
   const lineLabels = filteredMonths
-  const lineNets = filteredMonths.map(m=>filteredByM[m]?.net || 0)
+  const lineNets = filteredMonths.map(m=>{
+    const mData = filteredByM[m]||{income:0,expense:0,net:0}
+    if(TX_FILTER==='income') return mData.income||0
+    if(TX_FILTER==='expense') return -(mData.expense||0)
+    return mData.net||0
+  })
 
   drawBarChart($('#bar'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
   drawLineChart($('#line'), lineLabels, lineNets)
@@ -434,12 +570,15 @@ function bindMain(){
     filteredMonths.forEach(m => {
       const monthData = filteredByM[m]
       if(monthData) {
-        totalIncome += monthData.income || 0
-        totalExpense += monthData.expense || 0
-        Object.keys(monthData.byCat || {}).forEach(cat => {
-          totalByCat[cat] = (totalByCat[cat] || 0) + (monthData.byCat[cat] || 0)
-        })
+        totalIncome += (TX_FILTER==='expense') ? 0 : (monthData.income || 0)
+        totalExpense += (TX_FILTER==='income') ? 0 : (monthData.expense || 0)
       }
+    })
+    // Пересчёт категорий через отфильтрованные транзакции
+    const txForCats = filteredTransactions()
+    txForCats.forEach(t=>{
+      const cat = t.category||'Без категории'
+      totalByCat[cat] = (totalByCat[cat]||0) + Math.abs(t.amount||0)
     })
     
     if(mode === 'categories'){
@@ -461,13 +600,38 @@ function bindMain(){
       drawPieChart()
     }
   }
+  // Инициализировать видимость контролов по умолчанию (год активен)
+  const periodControls = $('#periodControls')
+  const monthControls = $('#monthControls')
+  const yearControls = $('#yearControls')
+  if(periodControls) periodControls.style.display = (PERIOD_FILTER.mode==='period') ? 'flex' : 'none'
+  if(monthControls) monthControls.style.display = (PERIOD_FILTER.mode==='month') ? 'flex' : 'none'
+  if(yearControls) yearControls.style.display = (PERIOD_FILTER.mode==='year') ? 'flex' : 'none'
+  // Фильтр по типу операций
+  const txType = $('#txType')
+  if(txType){
+    txType.value = (window.UI && UI.txFilter) ? UI.txFilter : TX_FILTER
+    txType.onchange = () => {
+      window.UI = window.UI || {}
+      UI.txFilter = txType.value
+      TX_FILTER = txType.value
+      updateAllCharts()
+    }
+  }
   // Глобальные обработчики фильтрации
   function updateAllCharts(){
     const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
     const barLabels = filteredMonths
-    const barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
-    const barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
-    const lineNets = filteredMonths.map(m=>filteredByM[m]?.net || 0)
+    let barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
+    let barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+    if(TX_FILTER==='income'){ barExpenses = barExpenses.map(()=>0) }
+    if(TX_FILTER==='expense'){ barIncomes = barIncomes.map(()=>0) }
+    const lineNets = filteredMonths.map(m=>{
+      const mData = filteredByM[m]||{income:0,expense:0,net:0}
+      if(TX_FILTER==='income') return mData.income||0
+      if(TX_FILTER==='expense') return -(mData.expense||0)
+      return mData.net||0
+    })
     
     drawBarChart($('#bar'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
     drawLineChart($('#line'), barLabels, lineNets)
@@ -482,8 +646,8 @@ function bindMain(){
   
   function updateStats(){
     const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
-    const totalIncome = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.income||0),0)
-    const totalExpense = filteredMonths.reduce((s,m)=>s+(filteredByM[m]?.expense||0),0)
+    const totalIncome = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='expense')?0:(filteredByM[m]?.income||0)),0)
+    const totalExpense = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='income')?0:(filteredByM[m]?.expense||0)),0)
     const totalNet = totalIncome - totalExpense
     const curr = STATE.vault.currency
     
@@ -491,23 +655,32 @@ function bindMain(){
     const incomeEl = $('#incomeValue')
     const expenseEl = $('#expenseValue')
     const netEl = $('#netValue')
+    const netCard = netEl?.closest('.stat-card')
     
     if(incomeEl) incomeEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalIncome)
     if(expenseEl) expenseEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalExpense)
     if(netEl) {
       netEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalNet)
-      netEl.style.color = totalNet>=0?'var(--ok)':'var(--danger)'
+      // Обновляем класс карточки для правильного цвета
+      if(netCard) {
+        netCard.classList.remove('positive', 'negative')
+        netCard.classList.add(totalNet >= 0 ? 'positive' : 'negative')
+      }
     }
   }
   
   function updateRecentOperationsTable(){
-    const recent = filteredTransactions().sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,7)
+    const allSearched = getFilteredAndSearchedTransactions()
+    const recent = allSearched.slice(0, RECENT_LIMIT)
     const curr = STATE.vault.currency
     const tbody = $('#main .table-scroll tbody')
     if(tbody) {
       tbody.innerHTML = recent.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')
       // Переназначаем обработчики удаления
       $$('[data-del-tx]', tbody).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
+      // Обновляем счётчик "из y"
+      const totalEl = $('#recentTotalCount')
+      if(totalEl) totalEl.textContent = String(allSearched.length)
     }
   }
 
@@ -517,13 +690,20 @@ function bindMain(){
       PERIOD_FILTER.mode = radio.value
       const periodControls = $('#periodControls')
       const monthControls = $('#monthControls')
+      const yearControls = $('#yearControls')
       
       if(radio.value === 'period') {
         periodControls.style.display = 'flex'
         monthControls.style.display = 'none'
-      } else {
+        yearControls.style.display = 'none'
+      } else if(radio.value === 'month') {
         periodControls.style.display = 'none'
         monthControls.style.display = 'flex'
+        yearControls.style.display = 'none'
+      } else if(radio.value === 'year') {
+        periodControls.style.display = 'none'
+        monthControls.style.display = 'none'
+        yearControls.style.display = 'flex'
       }
       updateAllCharts()
     }
@@ -548,9 +728,43 @@ function bindMain(){
     updateAllCharts()
   }
 
+  // Обработчик года
+  const globalYear = $('#globalYear')
+  if(globalYear){
+    // Заполнить список лет
+    const {months} = monthBuckets()
+    const years = Array.from(new Set(months.map(m=>m.split('-')[0]))).sort()
+    globalYear.innerHTML = years.map(y=>`<option ${y===PERIOD_FILTER.singleYear?'selected':''}>${y}</option>`).join('')
+    globalYear.onchange = () => {
+      PERIOD_FILTER.singleYear = globalYear.value
+      updateAllCharts()
+    }
+  }
+
   const btn=$('#btnOpenAdd'); if(btn) btn.onclick=openAddModal
   $$('[data-expand]').forEach(b=>{ b.onclick=()=>{ openExpanded(b.getAttribute('data-expand')) } })
   $$('[data-del-tx]').forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
+  
+  // Обработчики для таблицы операций
+  const recentLimitInput = $('#recentLimit')
+  const searchInput = $('#searchInput')
+  
+  if(recentLimitInput) {
+    recentLimitInput.oninput = () => {
+      const newLimit = parseInt(recentLimitInput.value) || 7
+      if(newLimit >= 1 && newLimit <= 50) {
+        RECENT_LIMIT = newLimit
+        updateRecentOperationsTable()
+      }
+    }
+  }
+  
+  if(searchInput) {
+    searchInput.oninput = () => {
+      SEARCH_TEXT = searchInput.value
+      updateRecentOperationsTable()
+    }
+  }
   const overlay=$('#dashOverlay'); if(overlay){ overlay.onclick=closeExpanded }
   const closeBtn=$('#btnCloseDashModal'); if(closeBtn){ closeBtn.onclick=closeExpanded }
   if(window.UI&&UI.expanded){ renderExpanded(UI.expanded) } else { hideExpanded() }
@@ -586,9 +800,6 @@ function bindUnlock(){
 }
 
 function bindSide(){
-  // режим без пароля — кнопка скрыта
-  $('#selectCurrency').onchange=(e)=>setCurrency(e.target.value)
-
   // Хранилище
   $('#btnExportVault').onclick=()=>{
     const data = localStorage.getItem(LS_KEY)
@@ -610,7 +821,7 @@ function bindSide(){
       toast('Повреждённый файл','warn')
     }
   }
-  $('#btnResetApp').onclick=()=>{ if(confirm('Удалить localStorage и сбросить приложение?')){ localStorage.removeItem(LS_KEY); STATE={unlocked:false,pass:null,vault:null}; render(); toast('Сброшено') } }
+  // Убрали отдельную страницу «Справка» — используем встроенный блок «Как пользоваться»
 
   // XML импорт - обработчик задан в HTML onchange="onXmlChosen(event)"
   const bankXml = $('#bankXml'); 
@@ -935,6 +1146,8 @@ function renderExpanded(key){
   if(!o||!m||!t||!c) return
   o.style.display='block'; m.style.display='block';
   c.innerHTML=''
+  const rs = t && t.parentElement ? t.parentElement.querySelector('.right') : null
+  if(rs) rs.innerHTML=''
   const {months,byM}=monthBuckets()
   const labels = months
   if(key==='bar'){
@@ -943,8 +1156,10 @@ function renderExpanded(key){
     
     const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
     const barLabels = filteredMonths
-    const barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
-    const barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+    let barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
+    let barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
+    if(TX_FILTER==='income'){ barExpenses = barExpenses.map(()=>0) }
+    if(TX_FILTER==='expense'){ barIncomes = barIncomes.map(()=>0) }
     drawBarChart($('#barBig'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
   }else if(key==='line'){
     t.textContent='Чистый итог по месяцам'
@@ -952,13 +1167,19 @@ function renderExpanded(key){
     
     const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
     const lineLabels = filteredMonths
-    const lineNets = filteredMonths.map(m=>filteredByM[m]?.net || 0)
+    const lineNets = filteredMonths.map(m=>{
+      const mData = filteredByM[m]||{income:0,expense:0,net:0}
+      if(TX_FILTER==='income') return mData.income||0
+      if(TX_FILTER==='expense') return -(mData.expense||0)
+      return mData.net||0
+    })
     drawLineChart($('#lineBig'), lineLabels, lineNets)
   }else if(key==='pie'){
     t.textContent='Анализ расходов'
-    c.innerHTML=`<div class="controls">
-      <label class="pill">Тип<select id="pieModeBig" style="margin-left:6px"><option value="income_expense">Доходы/Расходы</option><option value="categories">По категориям</option></select></label>
-    </div><canvas id="pieBig" style="height:64vh"></canvas>`
+    if(rs){
+      rs.innerHTML = '<label class="pill" style="font-weight:normal;font-size:13px">Тип<select id="pieModeBig" style="margin-left:6px;font-size:13px"><option value="income_expense">Доходы/Расходы</option><option value="categories">По категориям</option></select></label>'
+    }
+    c.innerHTML=`<canvas id="pieBig" style="height:64vh"></canvas>`
     
     const modeSel=$('#pieModeBig')
     const draw=()=>{ 
@@ -970,15 +1191,17 @@ function renderExpanded(key){
       filteredMonths.forEach(m => {
         const monthData = filteredByM[m]
         if(monthData) {
-          totalIncome += monthData.income || 0
-          totalExpense += monthData.expense || 0
-          Object.keys(monthData.byCat || {}).forEach(cat => {
-            totalByCat[cat] = (totalByCat[cat] || 0) + (monthData.byCat[cat] || 0)
-          })
+          totalIncome += (TX_FILTER==='expense') ? 0 : (monthData.income || 0)
+          totalExpense += (TX_FILTER==='income') ? 0 : (monthData.expense || 0)
         }
       })
       
       if(mode === 'categories'){
+        const tx = filteredTransactions()
+        tx.forEach(t=>{
+          const cat=t.category||'Без категории'
+          totalByCat[cat]=(totalByCat[cat]||0)+Math.abs(t.amount||0)
+        })
         const l=Object.keys(totalByCat)
         const v=l.map(k=>totalByCat[k])
         drawDonutChart($('#pieBig'), l, v) 
@@ -990,17 +1213,49 @@ function renderExpanded(key){
     draw(); 
     if(modeSel) modeSel.onchange=draw
   }else if(key==='recent'){
+    const totalCount = getFilteredAndSearchedTransactions().length
+    const expandLimit = totalCount // В expand режиме показываем все доступные записи
     t.textContent='Операции'
-    const rows=filteredTransactions().sort((a,b)=>new Date(b.date)-new Date(a.date))
-    const curr=STATE.vault.currency
+    if(rs){
+      rs.innerHTML = '<div style="display:flex;gap:8px;align-items:center"><input id="searchInputBig" type="text" placeholder="Поиск..." value="'+SEARCH_TEXT+'" style="width:180px;font-size:13px"></div>'
+    }
+    
+    const updateBigTable = () => {
+      const rows = getFilteredAndSearchedTransactions()
+      const curr = STATE.vault.currency
+      const tableContainer = c.querySelector('.table-scroll')
+      
+      if(tableContainer) {
+        tableContainer.querySelector('tbody').innerHTML = rows.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')
+        // Переназначаем обработчики удаления
+        $$('[data-del-tx]', tableContainer).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')); updateBigTable() } })
+      }
+    }
+    
+    const rows = getFilteredAndSearchedTransactions()
+    const curr = STATE.vault.currency
     c.innerHTML = `<div class="table-scroll" style="max-height:60vh">
       <table>
-        <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th style=\"text-align:right\">Сумма</th><th></th></tr></thead>
+        <thead><tr><th>Дата</th><th>Описание</th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
         <tbody>
-          ${rows.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
+          ${rows.map(t=>`<tr><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${escapeHtml(t.category||'')}</td><td style="text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style="width:32px;text-align:right;">${t.source==='manual'?`<button class="btn-small" data-del-tx="${t.id}">🗑</button>`:''}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>`
+    
+    // Добавляем обработчики для контролов в expand режиме
+    const searchInputBig = $('#searchInputBig')
+    
+    if(searchInputBig) {
+      searchInputBig.oninput = () => {
+        SEARCH_TEXT = searchInputBig.value
+        // Обновляем обычный поиск тоже
+        const normalSearchInput = $('#searchInput')
+        if(normalSearchInput) normalSearchInput.value = SEARCH_TEXT
+        updateBigTable()
+        updateRecentOperationsTable()
+      }
+    }
     $$('[data-del-tx]', c).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
   }
 }
@@ -1129,6 +1384,23 @@ async function saveChartsPng(){
 }
 
 // ===== ИНИЦ =====
+// Инициализируем тему перед рендером
+initTheme()
+
+// Обработчики header
+$('#themeToggle').onclick = toggleTheme
+$('#helpToggle').onclick = toggleHelp
+$('#btnClearStorage').onclick = () => {
+  if(confirm('Очистить localStorage (все данные будут удалены)?')) {
+    localStorage.removeItem(LS_KEY)
+    localStorage.removeItem('finboard_theme')
+    STATE = {unlocked:true, pass:null, vault:emptyVault()}
+    window.UI = {}
+    render()
+    toast('Все данные очищены')
+  }
+}
+
 render()
 
 // Инициализация состояния XML импорта

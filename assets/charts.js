@@ -187,6 +187,29 @@ function attachBarTooltip(canvas, bars, dpr){
     }else{ tip.style.display='none' }
   }
   canvas.onmouseleave=()=>{ tip.style.display='none' }
+
+  // Double-click to set month filter to clicked bar label
+  canvas.ondblclick=(e)=>{
+    const rect=canvas.getBoundingClientRect()
+    const mx=(e.clientX-rect.left)*dpr, my=(e.clientY-rect.top)*dpr
+    function findBar(mx,my){
+      for(const b of bars){
+        const minHeight = 20 * dpr
+        const clickHeight = Math.max(b.h, minHeight)
+        const clickY = b.y - (clickHeight - b.h) / 2
+        const padding = 4 * dpr
+        if(mx >= b.x - padding && mx <= b.x + b.w + padding && 
+           my >= clickY - padding && my <= clickY + clickHeight + padding) return b
+      }
+      return null
+    }
+    const b=findBar(mx,my)
+    if(b && window.PERIOD_FILTER){
+      window.PERIOD_FILTER.mode='month'
+      window.PERIOD_FILTER.singleMonth=b.label
+      if(typeof window.render === 'function'){ window.render() }
+    }
+  }
 }
 
 function attachLineTooltip(canvas, points, dpr){

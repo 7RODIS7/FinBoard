@@ -1,4 +1,6 @@
 :root{--bg:#0f1216;--card:#151a20;--muted:#97a3b6;--text:#e6edf3;--primary:#4ea1ff;--accent:#6dd3a6;--danger:#ff6b6b;--warn:#f5c25c;--ok:#7bd88f;--grid:#222a34;--chip:#1c2430;--br:16px}
+
+[data-theme="light"]{--bg:#ffffff;--card:#f8f9fa;--muted:#6c757d;--text:#212529;--primary:#0d6efd;--accent:#20c997;--danger:#dc3545;--warn:#ffc107;--ok:#198754;--grid:#dee2e6;--chip:#e9ecef;--br:16px}
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,"Noto Sans",sans-serif}
@@ -213,5 +215,417 @@ canvas{width:100%;height:260px;display:block;background:transparent;border-radiu
   box-shadow:0 8px 32px rgba(0,0,0,0.6);
   max-width:280px;
   line-height:1.4;
+}
+
+/* Переключатель темы */
+.theme-toggle{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:32px;
+  height:32px;
+  border:1px solid var(--grid);
+  border-radius:8px;
+  background:var(--chip);
+  cursor:pointer;
+  transition:all 0.2s ease;
+  margin-left:auto;
+}
+
+.theme-toggle:hover{
+  background:var(--card);
+  border-color:var(--primary);
+}
+
+.theme-icon{
+  position:relative;
+  width:16px;
+  height:16px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+.theme-toggle .icon{
+  position:absolute;
+  font-size:16px;
+  transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin:center;
+}
+
+.theme-toggle .sun{
+  opacity:0;
+  transform:rotate(180deg) scale(0.5);
+}
+
+.theme-toggle .moon{
+  opacity:1;
+  transform:rotate(0deg) scale(1);
+}
+
+[data-theme="light"] .theme-toggle .sun{
+  opacity:1;
+  transform:rotate(0deg) scale(1);
+}
+
+[data-theme="light"] .theme-toggle .moon{
+  opacity:0;
+  transform:rotate(-180deg) scale(0.5);
+}
+
+/* Кнопка справки */
+.help-toggle{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:32px;
+  height:32px;
+  border:1px solid var(--grid);
+  border-radius:8px;
+  background:var(--chip);
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+
+.help-toggle:hover{
+  background:var(--card);
+  border-color:var(--primary);
+}
+
+.help-toggle.active{
+  background:#b3b3b3;
+  border-color:#b3b3b3;
+  color:white;
+}
+
+.help-icon{
+  font-size:14px;
+  transition:transform 0.2s ease;
+}
+
+.help-toggle.active .help-icon{
+  transform:rotate(180deg);
+}
+
+/* Кнопка очистки в header */
+.header-clear{
+  padding:6px 12px;
+  font-size:12px;
+  background:#1f1a0c;
+  border:1px solid #3d3414;
+  color:#e7d8a2;
+  border-radius:8px;
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+
+.header-clear:hover{
+  background:#2a240f;
+  border-color:#524520;
+}
+
+[data-theme="light"] .header-clear{
+  background:#fff3cd;
+  border-color:#ffeaa7;
+  color:#856404;
+}
+
+[data-theme="light"] .header-clear:hover{
+  background:#fef7e0;
+  border-color:#ffc107;
+}
+
+/* Улучшения для светлой темы */
+[data-theme="light"] header{
+  background:linear-gradient(180deg,#f8f9fa,#ffffff);
+  border-bottom-color:#dee2e6;
+}
+
+[data-theme="light"] .warnbox{
+  background:#fff3cd;
+  border-color:#ffc107;
+  color:#856404;
+}
+
+[data-theme="light"] .success{
+  background:#d1edff;
+  border-color:#0d6efd;
+  color:#0a58ca;
+}
+
+[data-theme="light"] #chartTip{
+  background:rgba(248,249,250,0.95);
+  box-shadow:0 8px 32px rgba(0,0,0,0.1);
+}
+
+[data-theme="light"] .dropzone{
+  background:#f8f9fa;
+  border-color:var(--grid);
+}
+
+[data-theme="light"] .dropzone.drag{
+  outline:2px solid var(--primary);
+}
+
+[data-theme="light"] input, [data-theme="light"] select, [data-theme="light"] textarea{
+  background:#ffffff;
+  border-color:var(--grid);
+}
+
+[data-theme="light"] button:not(.primary):not(.danger):not(.warn), [data-theme="light"] .btn:not(.primary):not(.danger):not(.warn){
+  background:#ffffff;
+  border-color:var(--grid);
+}
+
+[data-theme="light"] button:not(.primary):not(.danger):not(.warn):hover, [data-theme="light"] .btn:not(.primary):not(.danger):not(.warn):hover{
+  background:#f8f9fa;
+}
+
+/* Светлый текст на темных кнопках в светлой теме */
+[data-theme="light"] button.primary{
+  color:#ffffff !important;
+}
+
+[data-theme="light"] .filter-tab:has(input[type="radio"]:checked){
+  color:#ffffff !important;
+}
+
+[data-theme="light"] .filter-tab:has(input[type="radio"]:checked):hover{
+  color:#ffffff !important;
+}
+
+/* Стили для переработанного фильтра */
+.filter-card{
+  background:var(--card);
+  border:1px solid var(--grid);
+  border-radius:var(--br);
+  padding:20px;
+  margin-top:12px;
+}
+
+.filter-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:20px;
+}
+
+.filter-header h3{
+  margin:0;
+  font-size:18px;
+  font-weight:600;
+}
+
+.filter-body{
+  display:flex;
+  flex-direction:column;
+  gap:24px;
+}
+
+.filter-controls-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:20px;
+  align-items:start;
+}
+
+.filter-section{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.filter-label{
+  font-size:13px;
+  font-weight:500;
+  color:var(--muted);
+  margin-bottom:0;
+}
+
+.filter-select{
+  background:var(--chip);
+  border:1px solid var(--grid);
+  color:var(--text);
+  padding:8px 12px;
+  border-radius:8px;
+  font-size:14px;
+  width:100%;
+}
+
+.filter-mode-tabs{
+  display:flex;
+  background:var(--chip);
+  border-radius:8px;
+  padding:4px;
+  gap:2px;
+}
+
+.filter-tab{
+  flex:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:8px 12px;
+  border-radius:6px;
+  cursor:pointer;
+  transition:all 0.2s ease;
+  font-size:13px;
+  font-weight:500;
+  color:var(--muted);
+  margin:0;
+}
+
+.filter-tab input[type="radio"]{
+  display:none;
+}
+
+.filter-tab:hover{
+  background:var(--card);
+  color:var(--text);
+}
+
+.filter-tab input[type="radio"]:checked + span{
+  color:var(--text);
+}
+
+.filter-tab:has(input[type="radio"]:checked){
+  background:var(--primary);
+  color:white;
+}
+
+.filter-tab:has(input[type="radio"]:checked):hover{
+  background:var(--primary);
+  color:white;
+}
+
+.filter-params{
+  min-height:64px;
+  display:flex;
+  align-items:flex-end;
+}
+
+.filter-param-group{
+  width:100%;
+  display:flex;
+  flex-direction:column;
+  justify-content:flex-end;
+  min-height:64px;
+}
+
+.filter-param-group > .filter-select{
+  margin-top:auto;
+}
+
+.period-group{
+  justify-content:flex-end;
+}
+
+.period-group .period-inputs{
+  display:flex;
+  gap:12px;
+  align-items:flex-end;
+}
+
+.period-input{
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.period-input label{
+  font-size:12px;
+  color:var(--muted);
+  margin:0;
+  height:16px;
+  display:flex;
+  align-items:center;
+}
+
+.filter-stats-row{
+  display:grid;
+  grid-template-columns:repeat(3, 1fr);
+  gap:16px;
+  margin-top:8px;
+}
+
+.stat-card{
+  background:var(--chip);
+  border:1px solid var(--grid);
+  border-radius:12px;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  text-align:center;
+  transition:all 0.2s ease;
+}
+
+.stat-card:hover{
+  border-color:var(--primary);
+  transform:translateY(-1px);
+}
+
+.stat-label{
+  font-size:13px;
+  font-weight:500;
+  color:var(--muted);
+}
+
+.stat-value{
+  font-size:18px;
+  font-weight:700;
+  color:var(--text);
+}
+
+.stat-card.income .stat-value{
+  color:var(--ok);
+}
+
+.stat-card.expense .stat-value{
+  color:var(--danger);
+}
+
+.stat-card.net.positive .stat-value{
+  color:var(--ok);
+}
+
+.stat-card.net.negative .stat-value{
+  color:var(--danger);
+}
+
+/* Адаптивность фильтра */
+@media (max-width: 1024px) {
+  .filter-controls-grid{
+    grid-template-columns:1fr 1fr;
+    gap:16px;
+  }
+  
+  .filter-section:last-child{
+    grid-column:1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .filter-controls-grid{
+    grid-template-columns:1fr;
+    gap:16px;
+  }
+  
+  .filter-stats-row{
+    grid-template-columns:1fr;
+    gap:12px;
+  }
+  
+  .filter-header{
+    flex-direction:column;
+    gap:12px;
+    align-items:stretch;
+  }
+  
+  .period-group .period-inputs{
+    flex-direction:column;
+    gap:8px;
+  }
 }
 
