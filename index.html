@@ -184,8 +184,8 @@ function resetBeforeImport(kind){
   window.UI = {}
   // Для импорта хранилища также очистим выбор XML
   if(kind==='vault'){
-    try{ clearFile('bankXml') }catch(e){}
-    try{ clearXmlSelection() }catch(e){}
+    try{ clearFile('stmtFile') }catch(e){}
+    try{ clearStmtSelection() }catch(e){}
   }
   render()
 }
@@ -461,12 +461,33 @@ function render(){
 function sideUI(){
   return `
   <div class="card">
-    <h3>Пользовательские выписки</h3>
+    <h3>Выписки (XML/JSON)</h3>
     <div class="hr"></div>
-    <div class="grid-sm">
-      <label class="btn" for="inputImportVault">Импорт</label>
-      <button id="btnExportVault" class="btn">Экспорт</button>
-      <input id="inputImportVault" type="file" accept="application/json,.json" class="hidden" />
+    
+    <!-- Зона выбора файла -->
+    <div id="stmtDropzone" class="dropzone">
+      <label id="btnChooseStmt" class="btn" for="stmtFile">📁 Выбрать файл</label>
+      <input id="stmtFile" type="file" accept=".xml,text/xml,application/xml,application/json,.json" class="hidden" onchange="onStmtChosen(event)" />
+      <div class="help" style="margin-top:8px">XML (банк) или JSON (пользовательский экспорт). Можно перетащить сюда.</div>
+    </div>
+    
+    <!-- Информация о выбранном файле -->
+    <div id="stmtFileInfo" style="display:none;margin-top:12px;padding:12px;background:var(--card);border:1px solid var(--accent);border-radius:8px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <span style="color:var(--accent);font-size:16px;">✓</span>
+        <div id="stmtFileName" style="font-weight:600;color:var(--text);"></div>
+      </div>
+      <div id="stmtInfo" style="color:var(--accent);font-weight:500;margin-bottom:4px;"></div>
+      <div id="stmtStatus" style="color:var(--muted);font-size:12px;"></div>
+    </div>
+    
+    <!-- Кнопки управления -->
+    <div class="hr"></div>
+    <div class="controls">
+      <button id="btnClearStmt" class="btn" disabled>Очистить</button>
+      <button id="btnDoImportStmt" class="primary" disabled>Импортировать</button>
+      <span class="right"></span>
+      <button id="btnExportVault" class="btn">Экспорт (JSON)</button>
     </div>
   </div>
 
@@ -480,35 +501,6 @@ function sideUI(){
       <input id="inputImportCats" type="file" accept="application/json,.json" class="hidden" />
     </div>
     <div class="help" style="margin-top:8px">JSON с полями <code>categories</code> и <code>catRules</code>.</div>
-  </div>
-
-  <div class="card">
-    <h3>Импорт выписки UBB (XML)</h3>
-    <div class="hr"></div>
-    
-    <!-- Зона выбора файла -->
-    <div id="xmlDropzone" class="dropzone">
-      <label id="btnChooseXml" class="btn" for="bankXml">📁 Выбрать XML файл</label>
-      <input id="bankXml" type="file" accept=".xml,text/xml,application/xml" class="hidden" onchange="onXmlChosen(event)" />
-      <div class="help" style="margin-top:8px">Выберите файл или перетащите его сюда</div>
-    </div>
-    
-    <!-- Информация о выбранном файле -->
-    <div id="xmlFileInfo" style="display:none;margin-top:12px;padding:12px;background:var(--card);border:1px solid var(--accent);border-radius:8px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <span style="color:var(--accent);font-size:16px;">✓</span>
-        <div id="xmlFileName" style="font-weight:600;color:var(--text);"></div>
-      </div>
-      <div id="xmlInfo" style="color:var(--accent);font-weight:500;margin-bottom:4px;"></div>
-      <div id="xmlStatus" style="color:var(--muted);font-size:12px;"></div>
-    </div>
-    
-    <!-- Кнопки управления -->
-    <div class="hr"></div>
-    <div class="controls">
-      <button id="btnClearXml" class="btn" disabled>Очистить</button>
-      <button id="btnDoImportXml" class="primary" disabled>Импортировать</button>
-    </div>
   </div>`
 }
 
@@ -997,67 +989,46 @@ function bindSide(){
     e.target.value=''
   }
   const btnOpenCats2=$('#btnOpenCats2'); if(btnOpenCats2) btnOpenCats2.onclick=openCategoriesModal
-  $('#inputImportVault').onchange=async (e)=>{
-    const f=e.target.files[0]; if(!f) return
-    const t=await f.text();
-    try{
-      const parsed = ensureVault(JSON.parse(t))
-      // Сохраним текущие категории/правила
-      const preservedCats = (STATE?.vault?.categories)||[]
-      const preservedRules = (STATE?.vault?.catRules)||[]
-      // Полностью очистим предыдущее состояние перед загрузкой нового, но восстановим cats/rules
-      resetBeforeImport('vault')
-      STATE.vault = ensureVault(parsed)
-      if(Array.isArray(preservedCats) && preservedCats.length) STATE.vault.categories = preservedCats
-      if(Array.isArray(preservedRules) && preservedRules.length) STATE.vault.catRules = preservedRules
-      localStorage.setItem(LS_KEY, JSON.stringify(STATE.vault))
-      toast('Хранилище импортировано.')
-      render()
-    }catch(err){
-      toast('Повреждённый файл','warn')
-    }
-  }
   // Убрали отдельную страницу «Справка» — используем встроенный блок «Как пользоваться»
 
-  // XML импорт - обработчик задан в HTML onchange="onXmlChosen(event)"
-  const bankXml = $('#bankXml'); 
-  $('#btnDoImportXml').onclick = doImportXml
-  $('#btnClearXml').onclick = () => { 
-    clearFile('bankXml'); 
-    clearXmlSelection();
+  // Унифицированный импорт выписок (XML/JSON)
+  $('#btnDoImportStmt').onclick = doImportStmt
+  $('#btnClearStmt').onclick = () => { 
+    clearFile('stmtFile'); 
+    clearStmtSelection();
     toast('Выбор файла очищен');
   }
-  const dz = $('#xmlDropzone')
+  const dz = $('#stmtDropzone')
   ;['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.add('drag')}))
   ;['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.remove('drag')}))
-  dz.addEventListener('drop', async (e)=>{ const f=e.dataTransfer.files?.[0]; if(f){ $('#bankXml').files = e.dataTransfer.files; await onXmlChosen() } })
+  dz.addEventListener('drop', async (e)=>{ const f=e.dataTransfer.files?.[0]; if(f){ $('#stmtFile').files = e.dataTransfer.files; await onStmtChosen() } })
 
   // CSV отключён
 }
 
 // CSV импорт удалён
 
-// ===== ИМПОРТ ВЫПИСКИ (XML) =====
-let PENDING_XML_TEXT=null
+// ===== УНИФИЦИРОВАННЫЙ ИМПОРТ ВЫПИСОК (XML/JSON) =====
+let PENDING_IMPORT=null // { kind: 'xml'|'json', text: string, preview: {count, firstDate, lastDate, currency?} }
 
 // Делаем функцию глобально доступной для HTML onchange
-window.onXmlChosen = async function(event) {
+window.onStmtChosen = async function(event) {
   try{
-    const inp = event ? event.target : $('#bankXml'); 
+    const inp = event ? event.target : $('#stmtFile'); 
     if (!inp) { 
-      toast('Ошибка: не найден input bankXml','warn'); 
+      toast('Ошибка: не найден input stmtFile','warn'); 
       return;
     }
     const file = inp.files && inp.files[0]; 
     if (!file) {
-      clearXmlSelection();
+      clearStmtSelection();
       return;
     }
     // Получаем элементы
-    const xmlFileInfoEl = $('#xmlFileInfo');
-    const xmlFileNameEl = $('#xmlFileName');
-    const xmlInfoEl = $('#xmlInfo');
-    const xmlStatusEl = $('#xmlStatus');
+    const infoWrapEl = $('#stmtFileInfo');
+    const fileNameEl = $('#stmtFileName');
+    const infoEl = $('#stmtInfo');
+    const statusEl = $('#stmtStatus');
     // Fallback если readFileTextSmart не доступна
     if (typeof readFileTextSmart !== 'function') {
       const readFileTextSmart = (file) => {
@@ -1071,66 +1042,75 @@ window.onXmlChosen = async function(event) {
       window.readFileTextSmart = readFileTextSmart;
     }
     // Показываем информацию о файле
-    if (xmlFileInfoEl) {
-      xmlFileInfoEl.style.display = 'block';
+    if (infoWrapEl) {
+      infoWrapEl.style.display = 'block';
     }
-    if (xmlFileNameEl) {
+    if (fileNameEl) {
       // Обрезаем длинное название файла
       const truncateFileName = (name, maxLength = 20) => {
         return name.length > maxLength ? name.substring(0, maxLength) + '...' : name;
       };
-      xmlFileNameEl.textContent = `${truncateFileName(file.name)} (${(file.size/1024).toFixed(1)} KB)`;
+      fileNameEl.textContent = `${truncateFileName(file.name)} (${(file.size/1024).toFixed(1)} KB)`;
       // Добавляем полное название в title для показа при наведении
-      xmlFileNameEl.title = file.name;
+      fileNameEl.title = file.name;
     }
-    if (xmlStatusEl) {
-      xmlStatusEl.textContent = 'Обработка файла...';
-      xmlStatusEl.style.color = 'var(--muted)';
+    if (statusEl) {
+      statusEl.textContent = 'Обработка файла...';
+      statusEl.style.color = 'var(--muted)';
     }
     // Читаем и парсим файл
     const text = await readFileTextSmart(file); 
-    PENDING_XML_TEXT = text;
-    const info = previewXml(text);
-    if (info.count > 0) {
-      const infoText = `${info.count} операций · ${info.firstDate} — ${info.lastDate}${info.currency ? ` · ${info.currency}` : ''}`;
-      if (xmlInfoEl) {
-        xmlInfoEl.textContent = infoText;
-        xmlInfoEl.style.color = 'var(--accent)';
+    const ext = (file.name.split('.').pop()||'').toLowerCase();
+    const isXml = /xml$/.test(ext) || /xml/i.test(file.type||'')
+    let info
+    if(isXml){
+      info = previewXml(text)
+      PENDING_IMPORT = { kind:'xml', text, preview: info }
+    }else{
+      info = previewVaultJson(text)
+      PENDING_IMPORT = info && info.count>0 ? { kind:'json', text, preview: info } : null
+    }
+    if (PENDING_IMPORT && PENDING_IMPORT.preview && PENDING_IMPORT.preview.count>0) {
+      const p = PENDING_IMPORT.preview
+      const infoText = `${p.count} операций · ${p.firstDate} — ${p.lastDate}${p.currency ? ` · ${p.currency}` : ''}`;
+      if (infoEl) {
+        infoEl.textContent = infoText;
+        infoEl.style.color = 'var(--accent)';
       }
-      if (xmlStatusEl) {
-        xmlStatusEl.textContent = 'Готов к импорту';
-        xmlStatusEl.style.color = 'var(--ok)';
+      if (statusEl) {
+        statusEl.textContent = 'Готов к импорту';
+        statusEl.style.color = 'var(--ok)';
       }
-      enableXmlButtons();
+      enableImportButtons();
     } else {
-      if (xmlInfoEl) {
-        xmlInfoEl.textContent = 'Транзакции не найдены в файле';
-        xmlInfoEl.style.color = 'var(--warn)';
+      if (infoEl) {
+        infoEl.textContent = 'Транзакции не найдены в файле';
+        infoEl.style.color = 'var(--warn)';
       }
-      if (xmlStatusEl) {
-        xmlStatusEl.textContent = 'Файл не содержит транзакций';
-        xmlStatusEl.style.color = 'var(--warn)';
+      if (statusEl) {
+        statusEl.textContent = 'Файл не содержит транзакций';
+        statusEl.style.color = 'var(--warn)';
       }
-      disableXmlButtons();
+      disableImportButtons();
     }
   } catch(e) { 
-    toast('Ошибка обработки XML: ' + e.message, 'warn');
-    const xmlFileInfoEl = $('#xmlFileInfo');
-    const xmlStatusEl = $('#xmlStatus');
-    if (xmlFileInfoEl) {
-      xmlFileInfoEl.style.display = 'block';
+    toast('Ошибка обработки файла: ' + e.message, 'warn');
+    const infoWrapEl = $('#stmtFileInfo');
+    const statusEl = $('#stmtStatus');
+    if (infoWrapEl) {
+      infoWrapEl.style.display = 'block';
     }
-    if (xmlStatusEl) {
-      xmlStatusEl.textContent = 'Ошибка: ' + e.message;
-      xmlStatusEl.style.color = 'var(--danger)';
+    if (statusEl) {
+      statusEl.textContent = 'Ошибка: ' + e.message;
+      statusEl.style.color = 'var(--danger)';
     }
-    disableXmlButtons();
+    disableImportButtons();
   }
 };
-// Функции управления состоянием XML импорта
-function enableXmlButtons() {
-  const importBtn = $('#btnDoImportXml');
-  const clearBtn = $('#btnClearXml');
+// Функции управления состоянием импорта
+function enableImportButtons() {
+  const importBtn = $('#btnDoImportStmt');
+  const clearBtn = $('#btnClearStmt');
   if (importBtn) {
     importBtn.disabled = false;
     importBtn.style.opacity = '1';
@@ -1141,9 +1121,9 @@ function enableXmlButtons() {
   }
 }
 
-function disableXmlButtons() {
-  const importBtn = $('#btnDoImportXml');
-  const clearBtn = $('#btnClearXml');
+function disableImportButtons() {
+  const importBtn = $('#btnDoImportStmt');
+  const clearBtn = $('#btnClearStmt');
   if (importBtn) {
     importBtn.disabled = true;
     importBtn.style.opacity = '0.5';
@@ -1154,92 +1134,160 @@ function disableXmlButtons() {
   }
 }
 
-function clearXmlSelection() {
-  PENDING_XML_TEXT = null;
+function clearStmtSelection() {
+  PENDING_IMPORT = null;
   
-  const xmlFileInfoEl = $('#xmlFileInfo');
-  if (xmlFileInfoEl) {
-    xmlFileInfoEl.style.display = 'none';
+  const infoWrapEl = $('#stmtFileInfo');
+  if (infoWrapEl) {
+    infoWrapEl.style.display = 'none';
   }
   
   // Очищаем содержимое
-  const elements = ['#xmlFileName', '#xmlInfo', '#xmlStatus'];
+  const elements = ['#stmtFileName', '#stmtInfo', '#stmtStatus'];
   elements.forEach(sel => {
     const el = $(sel);
     if (el) el.textContent = '';
   });
   
-  disableXmlButtons();
+  disableImportButtons();
 }
 
-
-async function doImportXml(){
-  if(!PENDING_XML_TEXT){ 
-    toast('Сначала выберите XML файл', 'warn'); 
+async function doImportStmt(){
+  if(!PENDING_IMPORT){ 
+    toast('Сначала выберите файл', 'warn'); 
     return;
   }
-  
+  // Выбор режима: merge или replace
+  const mode = await confirmImportMode()
+  if(!mode){ return }
   try{
-    // Полный сброс данных перед импортом нового XML
-    resetBeforeImport('xml')
-    const res = parseXmlTransactions(PENDING_XML_TEXT);
-    
-    if(!res || !res.transactions || !res.transactions.length){ 
-      toast('В XML файле не найдены транзакции','warn'); 
-      return;
+    const statusEl = $('#stmtStatus');
+    if (statusEl) { statusEl.textContent = 'Импорт...'; statusEl.style.color = 'var(--primary)'; }
+    let imported = []
+    let importedCurrency = null
+    if(PENDING_IMPORT.kind==='xml'){
+      const res = parseXmlTransactions(PENDING_IMPORT.text)
+      imported = res.transactions||[]
+      importedCurrency = res.currency||null
+    }else if(PENDING_IMPORT.kind==='json'){
+      const v = ensureVault(JSON.parse(PENDING_IMPORT.text))
+      imported = Array.isArray(v.transactions)? v.transactions : []
+      importedCurrency = v.currency||null
     }
-    
-    // Показываем прогресс
-    const xmlStatusEl = $('#xmlStatus');
-    if (xmlStatusEl) {
-      xmlStatusEl.textContent = `Импорт ${res.transactions.length} операций...`;
-      xmlStatusEl.style.color = 'var(--primary)';
-    }
-    
-    addTransactions(res.transactions);
-    // Автокатегоризация по правилам (если есть)
-    try{
-      if(Array.isArray(STATE.vault.catRules) && STATE.vault.catRules.length){
-        const rules = STATE.vault.catRules.map(r=>({match:String(r.match||'').toLowerCase(), category:r.category}))
-        for(const t of STATE.vault.transactions){
-          const hay = [t.desc, t.trName, t.nameR, t.remI, t.remII].map(x=>String(x||'').toLowerCase()).join(' | ')
-          const hit = rules.find(r=> r.match && hay.includes(r.match))
-          if(hit){ t.category = hit.category }
-        }
+    if(!imported.length){ toast('В файле нет операций','warn'); return }
+    if(mode==='replace'){
+      const preservedCats = (STATE?.vault?.categories)||[]
+      const preservedRules = (STATE?.vault?.catRules)||[]
+      resetBeforeImport('vault')
+      STATE.vault.transactions = []
+      addTransactions(imported.map(t=>normalizeImportedTx(t)))
+      if(Array.isArray(preservedCats) && preservedCats.length) STATE.vault.categories = preservedCats
+      if(Array.isArray(preservedRules) && preservedRules.length) STATE.vault.catRules = preservedRules
+      if(importedCurrency){ STATE.vault.currency = importedCurrency }
+      applyCatRulesToAllTransactions()
+      if(imported.length>0){
+        const dates = imported.map(t=>t.date).sort()
+        const firstDate = new Date(dates[0])
+        const lastDate = new Date(dates[dates.length-1])
+        PERIOD_FILTER.fromMonth = monthKey(firstDate)
+        PERIOD_FILTER.toMonth = monthKey(lastDate)
+        PERIOD_FILTER.singleMonth = monthKey(lastDate)
       }
-    }catch(_){ }
-    if(res.currency){ 
-      STATE.vault.currency = res.currency;
+    }else{
+      // merge
+      const added = mergeTransactionsIntoVault(imported.map(t=>normalizeImportedTx(t)))
+      // Валюту не меняем при мердже
+      applyCatRulesToAllTransactions()
+      toast(`Добавлено ${added} новых операций (мердж)`)    
     }
-    
-    // Устанавливаем период по умолчанию на основе импортированных данных
-    if(res.transactions.length > 0){
-      const dates = res.transactions.map(t => t.date).sort()
-      const firstDate = new Date(dates[0])
-      const lastDate = new Date(dates[dates.length-1])
-      PERIOD_FILTER.fromMonth = monthKey(firstDate)
-      PERIOD_FILTER.toMonth = monthKey(lastDate)
-      PERIOD_FILTER.singleMonth = monthKey(lastDate) // Устанавливаем последний месяц как одиночный
-    }
-    
-    await saveVault(); 
-    render(); 
-    
-    toast(`✅ Успешно импортировано ${res.transactions.length} операций`);
-    
+    await saveVault();
+    render();
     // Очищаем выбор после успешного импорта
-    clearFile('bankXml');
-    clearXmlSelection();
-    
-  } catch(err){ 
-    toast('Ошибка импорта XML: ' + err.message, 'warn');
-    
-    const xmlStatusEl = $('#xmlStatus');
-    if (xmlStatusEl) {
-      xmlStatusEl.textContent = 'Ошибка импорта: ' + err.message;
-      xmlStatusEl.style.color = 'var(--danger)';
+    clearFile('stmtFile');
+    clearStmtSelection();
+    toast(`✅ Успешно обработано ${imported.length} операций`);
+  }catch(err){
+    toast('Ошибка импорта: ' + err.message, 'warn')
+    const statusEl = $('#stmtStatus');
+    if (statusEl) {
+      statusEl.textContent = 'Ошибка импорта: ' + err.message;
+      statusEl.style.color = 'var(--danger)';
     }
   }
+}
+
+function normalizeImportedTx(t){
+  // Гарантируем корректную схему и новые id при необходимости
+  return {
+    id: t.id && String(t.id).length>4 ? String(t.id) : uid(),
+    date: (t.date && String(t.date).slice(0,10)) || new Date().toISOString().slice(0,10),
+    desc: String(t.desc||'').trim(),
+    amount: +t.amount || 0,
+    category: t.category ? String(t.category) : null,
+    source: t.source==='manual' ? 'manual' : 'import',
+    trName: t.trName||null,
+    nameR: t.nameR||null,
+    remI: t.remI||null,
+    remII: t.remII||null
+  }
+}
+
+function mergeTransactionsIntoVault(incoming){
+  const keyOf = (tx) => {
+    const d = String(tx.date||'').slice(0,10)
+    const a = (Math.round((+tx.amount||0)*100)/100).toFixed(2)
+    const desc = String(tx.desc||'').trim().toLowerCase()
+    return `${d}|${a}|${desc}`
+  }
+  const existingKeys = new Set(STATE.vault.transactions.map(keyOf))
+  let added=0
+  for(const t of incoming){
+    const k = keyOf(t)
+    if(existingKeys.has(k)) continue
+    STATE.vault.transactions.push(t)
+    existingKeys.add(k)
+    added++
+  }
+  return added
+}
+
+function previewVaultJson(jsonText){
+  try{
+    const v = ensureVault(JSON.parse(jsonText))
+    const tx = Array.isArray(v.transactions)? v.transactions : []
+    if(!tx.length) return {count:0}
+    const dates = tx.map(t=>new Date(t.date))
+    const firstDate = dateFmt.format(new Date(Math.min(...dates)))
+    const lastDate = dateFmt.format(new Date(Math.max(...dates)))
+    return {count:tx.length, firstDate, lastDate, currency: v.currency||null}
+  }catch(_){ return {count:0} }
+}
+
+// Простое модальное окно для выбора режима импорта
+function confirmImportMode(){
+  return new Promise(resolve=>{
+    const wrap=document.createElement('div')
+    wrap.style.position='fixed';wrap.style.inset='0';wrap.style.display='flex';wrap.style.alignItems='center';wrap.style.justifyContent='center';wrap.style.background='rgba(0,0,0,0.5)';wrap.style.zIndex='9998'
+    wrap.innerHTML = `<div class="card" style="width:min(520px,95vw)">
+      <h3 style="margin:0 0 8px 0">Импорт выписки</h3>
+      <div class="help" style="margin-bottom:8px">
+        Выберите действие: <b>мерджить</b> добавит новые операции без перезаписи существующих и сохранит ваши категории/ручные записи. <b>Заменить</b> — очистит текущие операции и загрузит из файла (категории и правила сохранятся).
+      </div>
+      <div class="inline">
+        <button id="impMerge" class="btn">Мерджить</button>
+        <button id="impReplace" class="warn">Заменить</button>
+        <span class="right"></span>
+        <button id="impCancel" class="btn">Отмена</button>
+      </div>
+    </div>`
+    document.body.appendChild(wrap)
+    const done=(v)=>{ try{wrap.remove()}catch(_){}; resolve(v) }
+    $('#impMerge',wrap).onclick=()=>done('merge')
+    $('#impReplace',wrap).onclick=()=>{ if(confirm('Заменить текущие операции данными из файла? Это удалит только операции, категории и правила сохранятся.')) done('replace') }
+    $('#impCancel',wrap).onclick=()=>done(null)
+    wrap.addEventListener('click',(e)=>{ if(e.target===wrap) done(null) })
+    window.addEventListener('keydown', function esc(e){ if(e.key==='Escape'){ done(null); window.removeEventListener('keydown', esc) } })
+  })
 }
 function previewXml(xmlText){
   try{
@@ -1637,8 +1685,8 @@ $('#btnClearStorage').onclick = () => {
 
 render()
 
-// Инициализация состояния XML импорта
-disableXmlButtons()
+// Инициализация состояния импорта
+disableImportButtons()
 
 // адаптивный перерисовщик графиков
 let ro=new ResizeObserver(()=>{ bindMain() })
