@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' blob: data: file:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-src 'none'">
+  <title>FinBoard · Gross/Net калькулятор</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+  <script src="assets/prefs.js"></script>
+  <script src="assets/help.js"></script>
+  <script src="assets/charts.js"></script>
+  <script>
+    const $ = (sel,root=document)=>root.querySelector(sel)
+    const $$ = (sel,root=document)=>Array.from(root.querySelectorAll(sel))
+    function initTheme(){ try{ if(window.PREFS && PREFS.initThemeFromPrefs){ PREFS.initThemeFromPrefs(); return } }catch(_){ } const saved = localStorage.getItem('finboard_theme')||'dark'; document.documentElement.setAttribute('data-theme', saved) }
+    function toggleTheme(){ try{ if(window.PREFS && PREFS.toggleThemeByPrefs){ PREFS.toggleThemeByPrefs(); return } }catch(_){ } const cur=document.documentElement.getAttribute('data-theme')||'dark'; const next=cur==='dark'?'light':'dark'; document.documentElement.setAttribute('data-theme',next); localStorage.setItem('finboard_theme',next) }
+    function toast(text){ let el=document.getElementById('toast'); if(!el){ el=document.createElement('div'); el.id='toast'; el.style.position='fixed'; el.style.right='16px'; el.style.bottom='16px'; el.style.zIndex='9999'; el.style.maxWidth='320px'; document.body.appendChild(el) } el.innerHTML = `<div class="success">${text}</div>`; setTimeout(()=>{el.innerHTML=''},2000) }
+    let HELP_VISIBLE=false
+    function toggleHelp(){ HELP_VISIBLE=!HELP_VISIBLE; const helpToggle=$('#helpToggle'); const helpBlock=$('#helpBlock'); if(helpToggle){ helpToggle.classList.toggle('active', HELP_VISIBLE); helpToggle.title = HELP_VISIBLE?'Скрыть справку':'Показать справку' } if(helpBlock){ helpBlock.style.display = HELP_VISIBLE?'block':'none' } }
+  </script>
+  <script defer src="assets/grossnet.js"></script>
+  <style>
+    .gn-section h2{margin:0 0 8px 0;font-size:16px}
+    .gn-kpis{display:grid;gap:8px}
+    .opt-block{border:1px solid var(--grid);border-radius:12px;padding:12px;margin-top:8px;background:var(--chip)}
+    .opt-head{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px}
+    .opt-toggles{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .opt-toggles .pill{justify-content:flex-start;padding:2px 8px;height:28px;font-size:13px;gap:6px}
+    .opt-toggles .pill input[type="checkbox"]{margin:0 6px 0 0;transform:none}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <nav class="top-nav">
+      <a href="index.html" title="FinBoard">FinBoard</a>
+      <a href="gross-net.html" class="active" title="Gross/Net">Gross/Net</a>
+    </nav>
+    <div class="spacer"></div>
+    <h1>Gross/Net калькулятор</h1>
+    <div class="spacer"></div>
+    <div class="pill" id="currencySwitcher" title="Валюта отображения (только калькулятор)">
+      <label class="muted" for="selCurrency" style="margin:0">Валюта:</label>
+      <select id="selCurrency">
+        <option value="BGN">BGN</option>
+        <option value="EUR">EUR</option>
+        <option value="USD">USD</option>
+      </select>
+    </div>
+    <button id="btnClearStorageGN" class="icon-btn" title="Очистить данные (FinBoard)">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+    </button>
+    <div id="themeToggle" class="theme-toggle" title="Переключить тему"><span class="theme-icon"><span class="icon sun">☀️</span><span class="icon moon">🌙</span></span></div>
+    <div id="helpToggle" class="help-toggle" title="Показать справку"><span class="help-icon">❓</span></div>
+    <div id="settingsToggle" class="settings-toggle" title="Настройки"><span class="settings-icon">⚙️</span></div>
+  </header>
+  <main class="content" style="grid-column:1 / -1">
+    <div id="helpBlock" style="display:none"></div>
+    <div class="row cols-2" style="margin-top:0">
+      <div class="card">
+        <div class="gn-section">
+          <h2>Ввод данных</h2>
+          <div class="hr"></div>
+          <div class="grid-sm">
+            <div>
+              <label>Месячная з/п (gross, BGN)</label>
+              <input id="inpMonthly" type="number" step="0.01" value="1000" />
+            </div>
+            <div>
+              <label>Годовая з/п (gross, BGN)</label>
+              <input id="inpAnnual" type="number" step="0.01" value="12000" />
+            </div>
+            <div>
+              <label>Стаж (лет)</label>
+              <input id="inpSeniority" type="number" step="1" min="0" value="0" />
+            </div>
+            <div>
+              <label>Годовая (gross, с учетом стажа)</label>
+              <input id="inpAnnualWithSen" type="number" step="0.01" />
+            </div>
+            <div>
+              <label>Месяц</label>
+              <select id="selMonth"></select>
+            </div>
+            <div>
+              <label>Год</label>
+              <input id="inpYear" type="number" />
+            </div>
+          </div>
+          <div class="help" id="dayStats" style="margin-top:6px"></div>
+          <div class="hr"></div>
+          <div class="opt-toggles" style="margin-top:8px">
+            <label class="pill"><input id="chkSick" type="checkbox" /> Больничные</label>
+            <label class="pill"><input id="chkOver" type="checkbox" /> Овертайм</label>
+            <label class="pill"><input id="chkSport" type="checkbox" /> SportCard</label>
+            <label class="pill"><input id="chkIns" type="checkbox" /> Страховка</label>
+            <label class="pill"><input id="chkCorr" type="checkbox" /> Корректировка</label>
+          </div>
+          <div id="sickBlock" class="opt-block" style="display:none">
+            <div class="opt-head">Больничные</div>
+            <div class="grid-sm">
+              <div>
+                <label>Дней</label>
+                <input id="inpSickDays" type="number" min="0" value="0" />
+              </div>
+            </div>
+          </div>
+          <div id="overBlock" class="opt-block" style="display:none">
+            <div class="opt-head">Овертайм</div>
+            <div class="grid-sm">
+              <div>
+                <label>Кол-во</label>
+                <input id="inpOverAmt" type="number" min="0" value="0" />
+              </div>
+              <div>
+                <label>Тип</label>
+                <select id="selOverType"><option value="days">Дни</option><option value="hours">Часы</option></select>
+              </div>
+            </div>
+          </div>
+          <div id="sportBlock" class="opt-block" style="display:none">
+            <div class="opt-head">Sport Card</div>
+            <div class="grid-sm">
+              <div>
+                <label>Взрослых</label>
+                <input id="inpSportA" type="number" min="0" value="0" />
+              </div>
+              <div>
+                <label>Сумма (BGN)</label>
+                <input id="inpSportAVal" type="number" min="0" value="90" />
+              </div>
+              <div>
+                <label>Детей</label>
+                <input id="inpSportC" type="number" min="0" value="0" />
+              </div>
+              <div>
+                <label>Сумма (BGN)</label>
+                <input id="inpSportCVal" type="number" min="0" value="39" />
+              </div>
+            </div>
+          </div>
+          <div id="insBlock" class="opt-block" style="display:none">
+            <div class="opt-head">Страховка</div>
+            <div class="grid-sm">
+              <div>
+                <label>Кол-во</label>
+                <input id="inpInsCount" type="number" min="0" value="0" />
+              </div>
+              <div>
+                <label>Сумма (BGN)</label>
+                <input id="inpInsVal" type="number" min="0" value="70" />
+              </div>
+            </div>
+          </div>
+          <div id="corrBlock" class="opt-block" style="display:none">
+            <div class="opt-head">Корректировка</div>
+            <div class="grid-sm">
+              <div>
+                <label>Сумма (BGN)</label>
+                <input id="inpCorrVal" type="number" step="0.01" value="0" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="gn-section">
+          <h2>Net</h2>
+          <div class="hr"></div>
+          <div class="gn-kpis" id="kpiGrid" style="grid-template-columns:1fr 1fr 1fr">
+            <div class="pill"><b>Категория</b></div>
+            <div class="pill"><b>Net</b></div>
+            <div class="pill"><b>Gross</b></div>
+
+            <div class="pill">Месяц</div>
+            <div class="pill"><b id="kNetMonth"></b></div>
+            <div class="pill"><b id="kGrossMonth"></b></div>
+
+            <div class="pill">Год</div>
+            <div class="pill"><b id="kNetYear"></b></div>
+            <div class="pill"><b id="kGrossYear"></b></div>
+
+            <div class="pill">День (раб/календарный)</div>
+            <div class="pill"><b id="kNetDay"></b></div>
+            <div class="pill"><b id="kGrossDay"></b></div>
+
+            <div class="pill">Час (раб/календарный)</div>
+            <div class="pill"><b id="kNetHour"></b></div>
+            <div class="pill"><b id="kGrossHour"></b></div>
+          </div>
+          <div class="hr"></div>
+          <div class="grid-sm">
+            <div>
+              <label>Текущая (BGN)</label>
+              <input id="inpCmp1" type="number" value="12000" />
+            </div>
+            <div>
+              <label>Другая (BGN)</label>
+              <input id="inpCmp2" type="number" value="12600" />
+            </div>
+          </div>
+          <div class="warnbox" style="margin-top:8px" id="cmpDiff"></div>
+        </div>
+        <div class="hr"></div>
+        <div class="controls"><b>График Gross vs Net</b><span class="right"></span></div>
+        <canvas id="gnBar"></canvas>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  initTheme()
+  $('#themeToggle').onclick = toggleTheme
+  $('#helpToggle').onclick = toggleHelp
+  const st=$('#settingsToggle'); if(st){ st.onclick = ()=>{ try{ PREFS.openModal() }catch(_){ } } }
+  // Очистка данных аналогична основной странице
+  const clearBtn = document.getElementById('btnClearStorageGN')
+  if(clearBtn){
+    clearBtn.onclick = () => {
+      if(confirm('Очистить localStorage (все данные FinBoard будут удалены)?')){
+        try{ localStorage.removeItem('ofb_vault'); localStorage.removeItem('finboard_theme'); localStorage.removeItem('gn_state'); localStorage.removeItem('ofb_prefs') }catch(_){ }
+        alert('Данные очищены. Перейдите на FinBoard для инициализации.')
+      }
+    }
+  }
+  {
+    const hb = document.getElementById('helpBlock')
+    if(hb){
+      hb.innerHTML = `
+        <div class="card" style="margin-bottom:12px">
+          <h2 style="margin:0 0 6px 0">Gross/Net калькулятор — справка</h2>
+          <div class="help">
+            <ol>
+              <li><b>Зарплата:</b> укажите месячную или годовую — вторая пересчитается автоматически. Поле «Годовая (с учетом стажа)» можно править — месячная пересчитается обратно.</li>
+              <li><b>Стаж:</b> прибавка 0.6% за каждый год стажа автоматически влияет на брутто.</li>
+              <li><b>Месяц/Год:</b> влияет на расчет рабочих/календарных дней (учтены болгарские праздники и православная Пасха).</li>
+              <li><b>Опции:</b> включайте нужные чекбоксы, тогда появятся связанные поля:
+                больничные: работодатель оплачивает только <b>первые 2 раб. дня по 70%</b> (не облагаются 10% НДФЛ, но входят в база за взносы); с 3‑го дня платит НОИ — не входит в payroll; овертайм (дни/часы ×2), Sport Card, страховка, корректировка.</li>
+              <li><b>Итоги:</b> показывается Нетто за месяц/год, а также за день/час (рабочий/календарный). Есть конверсия в EUR/USD.</li>
+              <li><b>Сравнение:</b> позволяет сравнить два значения и увидеть разницу в BGN и процентах.</li>
+            </ol>
+            <div class="warnbox" style="margin-top:8px">
+              Правила 2025: удержания работника 13.78% от осигурителна база; <b>cap 3750</b> до 03.2025 и <b>4130</b> с 04.2025; НДФЛ 10% от базы (без суммы за дни 1–2 по 70%). Овертайм ×2. Нетто не может быть отрицательным.
+            </div>
+            <div class="success" style="margin-top:8px"><b>Горячие клавиши:</b> Ctrl+Alt+= (или +) — сохранить стаж и годовую со стажем; Ctrl+Alt+0 — восстановить.</div>
+          </div>
+        </div>`
+    }
+  }
+  // Apply preferred currency to selector on load
+  try{ const cur = (window.PREFS && PREFS.get && PREFS.get().preferredCurrency) || 'BGN'; const sel = document.getElementById('selCurrency'); if(sel){ sel.value = cur } }catch(_){ }
+</script>
+</body>
+</html>
+

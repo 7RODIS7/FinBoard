@@ -75,7 +75,7 @@ function openCategoriesModal(){
       </div>
     </div>
     <div class="hr"></div>
-    <div class="inline"><button id="btnApplyRules" class="primary">Применить к существующим</button><button id="closeCats" class="btn">Закрыть</button></div>
+    <div class="inline"><button id="btnImportCatsModal" class="btn">Импорт</button><button id="btnExportCatsModal" class="btn">Экспорт</button><span class="right"></span><button id="btnApplyRules" class="primary">Применить к существующим</button><button id="closeCats" class="btn">Закрыть</button><input id="inputImportCatsModal" type="file" accept="application/json,.json" class="hidden" /></div>
   </div>`
   document.body.appendChild(wrap)
 
@@ -87,7 +87,7 @@ function openCategoriesModal(){
     body.innerHTML = cats.map(c=>{
       const count = rules.filter(r=>r.category===c).length
       const isSel = c===selectedCat
-      return `<tr data-cat-row="${c}" style="${isSel?'background:var(--chip)':''}"><td>${escapeHtml(c)}</td><td style="text-align:right">${count}</td><td style="text-align:right"><button class="btn-small" title="Удалить" data-del-cat="${c}">🗑</button></td></tr>`
+      return `<tr data-cat-row="${c}" style="${isSel?'background:var(--chip)':''}"><td>${escapeHtml(c)}</td><td style="text-align:right">${count}</td><td style="text-align:right"><button class="icon-btn" title="Удалить" data-del-cat="${c}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button></td></tr>`
     }).join('')
     $$('[data-cat-row]',body).forEach(tr=>{
       tr.onclick=()=>{ selectedCat = tr.getAttribute('data-cat-row'); refreshCatsTable(); refreshRulesTable(); }
@@ -98,7 +98,7 @@ function openCategoriesModal(){
     const body=$('#rulesBody',wrap); if(!body) return
     const rules=STATE.vault.catRules||[]
     const list = rules.filter(r=>r.category===selectedCat)
-    body.innerHTML = list.map(r=>`<tr><td>${escapeHtml(r.match)}</td><td style="text-align:right"><button class="btn-small" title="Удалить" data-del-rule="${r.id}">🗑</button></td></tr>`).join('')
+    body.innerHTML = list.map(r=>`<tr><td>${escapeHtml(r.match)}</td><td style="text-align:right"><button class="icon-btn" title="Удалить" data-del-rule="${r.id}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button></td></tr>`).join('')
     $$('[data-del-rule]',body).forEach(b=>{ b.onclick=()=>{ removeRule(b.getAttribute('data-del-rule')); refreshRulesTable(); refreshCatsTable(); saveVault(); render(); } })
   }
 
@@ -116,6 +116,38 @@ function openCategoriesModal(){
     addRule(m,c); $('#ruleMatch',wrap).value=''; refreshRulesTable(); refreshCatsTable(); saveVault(); render();
   }
   $('#btnApplyRules',wrap).onclick=()=>{ applyCategoryRulesToAll(); saveVault(); render(); toast('Правила применены'); }
+
+  // Экспорт/импорт категорий внутри диалога
+  const btnExportCatsModal = $('#btnExportCatsModal', wrap)
+  if(btnExportCatsModal){
+    btnExportCatsModal.onclick = () => {
+      const payload = { categories: STATE.vault.categories||[], catRules: STATE.vault.catRules||[] }
+      download(`ofb-categories-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(payload,null,2))
+    }
+  }
+  const inputImportCatsModal = $('#inputImportCatsModal', wrap)
+  const btnImportCatsModal = $('#btnImportCatsModal', wrap)
+  if(btnImportCatsModal && inputImportCatsModal){
+    btnImportCatsModal.onclick = () => inputImportCatsModal.click()
+  }
+  if(inputImportCatsModal){
+    inputImportCatsModal.onchange = async (e) => {
+      const f=e.target.files[0]; if(!f) return
+      const t=await f.text();
+      try{
+        const parsed = JSON.parse(t)
+        if(!parsed || typeof parsed!== 'object') throw new Error('bad json')
+        const cats = Array.isArray(parsed.categories) ? parsed.categories : []
+        const rules = Array.isArray(parsed.catRules) ? parsed.catRules : []
+        STATE.vault.categories = cats
+        STATE.vault.catRules = rules.map(r=>({id: r.id || uid(), match: String(r.match||'').trim(), category: String(r.category||'').trim()})).filter(r=>r.match && r.category)
+        if(typeof applyCatRulesToAllTransactions === 'function'){ applyCatRulesToAllTransactions() } else { applyCategoryRulesToAll() }
+        await saveVault(); render(); toast('Категории и правила импортированы и применены')
+        refreshCatsTable(); refreshRulesTable();
+      }catch(err){ toast('Некорректный JSON категорий','warn') }
+      e.target.value=''
+    }
+  }
 
   refreshCatsTable()
   refreshRulesTable()

@@ -7,6 +7,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' blob: data: file:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-src 'none'">
   <title>FinBoard</title>
   <link rel="stylesheet" href="assets/styles.css" />
+  <script src="assets/prefs.js"></script>
   <script src="assets/help.js"></script>
   <script src="assets/xml.js"></script>
   <script src="assets/charts.js"></script>
@@ -15,9 +16,24 @@
 <body>
 <div class="app">
   <header>
+    <nav class="top-nav">
+      <a href="index.html" class="active" title="FinBoard">FinBoard</a>
+      <a href="gross-net.html" title="Gross/Net">Gross/Net</a>
+    </nav>
+    <div class="spacer"></div>
     <h1>FinBoard</h1>
-    <span class="right"></span>
-    <button id="btnClearStorage" class="header-clear" title="Очистить localStorage">🗑 Очистить данные</button>
+    <div class="spacer"></div>
+    <div class="pill" id="currencySwitcher" title="Валюта отображения">
+      <label class="muted" for="selCurrency" style="margin:0">Валюта:</label>
+      <select id="selCurrency">
+        <option value="BGN">BGN</option>
+        <option value="EUR">EUR</option>
+        <option value="USD">USD</option>
+      </select>
+    </div>
+    <button id="btnClearStorage" class="icon-btn" title="Очистить данные">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+    </button>
     <div id="themeToggle" class="theme-toggle" title="Переключить тему">
       <span class="theme-icon">
         <span class="icon sun">☀️</span>
@@ -27,6 +43,7 @@
     <div id="helpToggle" class="help-toggle" title="Показать справку">
       <span class="help-icon">❓</span>
     </div>
+    <div id="settingsToggle" class="settings-toggle" title="Настройки"><span class="settings-icon">⚙️</span></div>
     <button id="btnLock" class="btn" style="display:none">Заблокировать</button>
   </header>
 
@@ -41,14 +58,39 @@ const $$ = (sel,root=document)=>Array.from(root.querySelectorAll(sel))
 const fmt = new Intl.NumberFormat('ru-RU',{style:'currency',currency:'BGN',maximumFractionDigits:2})
 const monthFmt = new Intl.DateTimeFormat('ru-RU',{year:'numeric',month:'2-digit'})
 const dateFmt = new Intl.DateTimeFormat('ru-RU')
+// Currency conversion helpers (display currency from PREFS, BGN as hub)
+function prefsFx(){ try{ return (window.PREFS && PREFS.getFx && PREFS.getFx()) || { BGN_EUR:1.949, BGN_USD:1.773 } }catch(_){ return { BGN_EUR:1.949, BGN_USD:1.773 } } }
+function getDisplayCurrency(){ try{ return (window.PREFS && PREFS.get && (PREFS.get().preferredCurrency||null)) || STATE?.vault?.currency || 'BGN' }catch(_){ return (STATE?.vault?.currency)||'BGN' } }
+function convertValue(amount){
+  const from = (STATE?.vault?.currency)||'BGN'
+  const to = getDisplayCurrency()
+  if(!Number.isFinite(amount)) amount = 0
+  if(from===to) return amount
+  const fx = prefsFx()
+  // to BGN
+  let inBGN = amount
+  if(from==='EUR') inBGN = amount * (fx.BGN_EUR||1.949)
+  else if(from==='USD') inBGN = amount * (fx.BGN_USD||1.773)
+  // from BGN to target
+  if(to==='BGN') return inBGN
+  if(to==='EUR') return inBGN / (fx.BGN_EUR||1.949)
+  if(to==='USD') return inBGN / (fx.BGN_USD||1.773)
+  return amount
+}
+function formatAmountDisplay(amount){
+  const cur = getDisplayCurrency()
+  return new Intl.NumberFormat('ru-RU',{style:'currency',currency:cur}).format(convertValue(amount))
+}
 
 // ===== УПРАВЛЕНИЕ ТЕМОЙ =====
 function initTheme() {
+  try{ if(window.PREFS && PREFS.initThemeFromPrefs){ PREFS.initThemeFromPrefs(); return } }catch(_){ }
   const savedTheme = localStorage.getItem('finboard_theme') || 'dark'
   document.documentElement.setAttribute('data-theme', savedTheme)
 }
 
 function toggleTheme() {
+  try{ if(window.PREFS && PREFS.toggleThemeByPrefs){ PREFS.toggleThemeByPrefs(); return } }catch(_){ }
   const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark'
   const newTheme = currentTheme === 'dark' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-theme', newTheme)
@@ -114,6 +156,117 @@ function uid(){return Math.random().toString(36).slice(2)+Date.now().toString(36
 function monthKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
 function clamp(v,min,max){return Math.max(min,Math.min(max,v))}
 
+// ===== ДАТЫ/ПЕРИОДЫ =====
+function formatISODate(d){
+  // Локальная дата YYYY-MM-DD, чтобы избежать смещения по TZ
+  const y = d.getFullYear()
+  const m = String(d.getMonth()+1).padStart(2,'0')
+  const day = String(d.getDate()).padStart(2,'0')
+  return `${y}-${m}-${day}`
+}
+function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x }
+function endOfDay(d){ const x=new Date(d); x.setHours(23,59,59,999); return x }
+function startOfMonthDate(y,m){ return new Date(y, m, 1) }
+function endOfMonthDate(y,m){ return new Date(y, m+1, 0, 23,59,59,999) }
+function startOfMonth(d){ return startOfMonthDate(d.getFullYear(), d.getMonth()) }
+function endOfMonth(d){ return endOfMonthDate(d.getFullYear(), d.getMonth()) }
+function addDays(d,days){ const x=new Date(d); x.setDate(x.getDate()+days); return x }
+function daysInMonth(y,m){ return new Date(y, m+1, 0).getDate() }
+function getMonday(d){ const x=new Date(d); const day=(x.getDay()+6)%7; x.setDate(x.getDate()-day); x.setHours(0,0,0,0); return x }
+function isoWeekLabel(d){
+  const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  const dayNum = dt.getUTCDay() || 7
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(),0,1))
+  const week = Math.ceil((((dt - yearStart)/86400000) + 1)/7)
+  return `${dt.getUTCFullYear()}-W${String(week).padStart(2,'0')}`
+}
+function seasonRange(year, season){
+  if(season==='spring') return { start: new Date(year,2,1), end: endOfMonthDate(year,4) } // мар-май
+  if(season==='summer') return { start: new Date(year,5,1), end: endOfMonthDate(year,7) } // июн-авг
+  if(season==='autumn') return { start: new Date(year,8,1), end: endOfMonthDate(year,10) } // сен-ноя
+  // winter: декабрь предыдущего года — февраль текущего
+  return { start: new Date(year-1,11,1), end: endOfMonthDate(year,1) }
+}
+function resolveSelectedRange(){
+  const now = new Date()
+  if(PERIOD_FILTER.mode==='month' && PERIOD_FILTER.singleMonth){
+    const [y,m] = PERIOD_FILTER.singleMonth.split('-').map(Number)
+    return { start: startOfMonthDate(y, m-1), end: endOfMonthDate(y, m-1) }
+  }
+  if(PERIOD_FILTER.mode==='period' && PERIOD_FILTER.fromMonth && PERIOD_FILTER.toMonth){
+    const [y1,m1] = PERIOD_FILTER.fromMonth.split('-').map(Number)
+    const [y2,m2] = PERIOD_FILTER.toMonth.split('-').map(Number)
+    return { start: startOfMonthDate(y1, m1-1), end: endOfMonthDate(y2, m2-1) }
+  }
+  if(PERIOD_FILTER.mode==='year' && PERIOD_FILTER.singleYear){
+    const y = Number(PERIOD_FILTER.singleYear)
+    return { start: new Date(y,0,1), end: endOfMonthDate(y,11) }
+  }
+  if(PERIOD_FILTER.mode==='season' && PERIOD_FILTER.singleYear){
+    const y = Number(PERIOD_FILTER.singleYear)
+    const s = PERIOD_FILTER.singleSeason||'spring'
+    return seasonRange(y, s)
+  }
+  if(PERIOD_FILTER.mode==='week'){
+    const y = Number(PERIOD_FILTER.weekYear || now.getFullYear())
+    const w = Number(PERIOD_FILTER.weekNumber || 1)
+    // ISO week start (Mon): find Thursday of week to determine date, then back to Monday
+    const simple = new Date(Date.UTC(y,0,1))
+    const dayOfWeek = simple.getUTCDay() || 7
+    const thursday = new Date(simple)
+    thursday.setUTCDate(simple.getUTCDate() + (4 - dayOfWeek))
+    const weekStart = new Date(thursday)
+    weekStart.setUTCDate(thursday.getUTCDate() - ((thursday.getUTCDay()||7) - 1) + (w-1)*7)
+    const start = new Date(weekStart.getUTCFullYear(), weekStart.getUTCMonth(), weekStart.getUTCDate())
+    const end = addDays(start,6)
+    return { start: startOfDay(start), end: endOfDay(end) }
+  }
+  if(PERIOD_FILTER.mode==='day'){
+    const y = Number(PERIOD_FILTER.dayYear || now.getFullYear())
+    const m = Number(PERIOD_FILTER.dayMonth || (now.getMonth()+1))
+    const d = Number(PERIOD_FILTER.dayDay || 1)
+    const start = new Date(y, m-1, d)
+    return { start: startOfDay(start), end: endOfDay(start) }
+  }
+  // Фолбэк: весь диапазон по данным
+  const {months}=monthBuckets()
+  if(months.length){
+    const [y1,m1] = months[0].split('-').map(Number)
+    const [y2,m2] = months[months.length-1].split('-').map(Number)
+    return { start: startOfMonthDate(y1,m1-1), end: endOfMonthDate(y2,m2-1) }
+  }
+  return { start: startOfMonth(now), end: endOfMonth(now) }
+}
+function generateBuckets(range, kind){
+  const buckets=[]
+  if(kind==='month'){
+    let y=range.start.getFullYear(), m=range.start.getMonth()
+    const yEnd=range.end.getFullYear(), mEnd=range.end.getMonth()
+    while(y<mEnd?true:(y===yEnd && m<=mEnd)){
+      const s=new Date(y,m,1)
+      const e=endOfMonthDate(y,m)
+      buckets.push({ label: `${y}-${String(m+1).padStart(2,'0')}`, start:s, end:e })
+      m++; if(m>11){ m=0; y++ }
+      if(y>yEnd || (y===yEnd && m>mEnd)) break
+    }
+  }else if(kind==='week'){
+    let s = getMonday(range.start)
+    while(s <= range.end){
+      const e = addDays(s,6)
+      buckets.push({ label: isoWeekLabel(s), start: s, end: endOfDay(e) })
+      s = addDays(s,7)
+    }
+  }else if(kind==='day'){
+    let s = startOfDay(range.start)
+    while(s <= range.end){
+      buckets.push({ label: formatISODate(s), start: s, end: endOfDay(s) })
+      s = addDays(s,1)
+    }
+  }
+  return buckets
+}
+
 // ===== ШИФРОВАНИЕ (WebCrypto) =====
 const KDF_ITER = 250000
 async function deriveKey(pass, salt){
@@ -143,7 +296,23 @@ const LS_KEY = 'ofb_vault'
 let STATE = { unlocked:true, pass:null, vault: ensureVault(loadVaultPlain()) }
 
 // ===== ФИЛЬТР ПЕРИОДА =====
-let PERIOD_FILTER = { fromMonth: null, toMonth: null, mode: 'year', singleMonth: null, singleYear: null }
+let PERIOD_FILTER = {
+  mode: 'year',                 // 'year' | 'season' | 'month' | 'period' | 'week' | 'day'
+  // month/year/period
+  fromMonth: null,
+  toMonth: null,
+  singleMonth: null,
+  singleYear: null,
+  // seasons
+  singleSeason: 'spring',
+  // week selection
+  weekYear: null,
+  weekNumber: null,
+  // day selection
+  dayYear: null,
+  dayMonth: null,
+  dayDay: null
+}
 // Фильтр по типу операций: 'all' | 'income' | 'expense'
 let TX_FILTER = (window.UI && UI.txFilter) ? UI.txFilter : 'all'
 
@@ -191,7 +360,7 @@ function resetBeforeImport(kind){
 }
 
 function setCurrency(cur){
-  try{STATE.vault.currency=cur; (fmt.resolvedOptions().currency!==cur);}
+  try{STATE.vault.currency=cur; (fmt.resolvedOptions().currency!==cur);} 
   catch(e){}
   // Пересоздадим форматтер
   window.fmt = new Intl.NumberFormat('ru-RU',{style:'currency',currency:cur,maximumFractionDigits:2})
@@ -371,42 +540,61 @@ function filteredMonthBuckets(){
     const y = PERIOD_FILTER.singleYear
     const filteredMonths = months.filter(m => m.startsWith(y + '-'))
     return {months: filteredMonths, byM}
+  } else if(PERIOD_FILTER.mode === 'quarter' && PERIOD_FILTER.singleYear) {
+    const y = Number(PERIOD_FILTER.singleYear)
+    const q = Number(PERIOD_FILTER.singleQuarter||1)
+    const startMonth = (q-1)*3 + 1
+    const endMonth = startMonth + 2
+    const filteredMonths = months.filter(m => {
+      const [ys,ms] = m.split('-').map(Number)
+      if(ys!==y) return false
+      return ms>=startMonth && ms<=endMonth
+    })
+    return {months: filteredMonths, byM}
+  } else if(PERIOD_FILTER.mode === 'season' && PERIOD_FILTER.singleYear) {
+    const y = Number(PERIOD_FILTER.singleYear)
+    const range = seasonRange(y, PERIOD_FILTER.singleSeason||'spring')
+    const filteredMonths = months.filter(m => {
+      const [ys,ms] = m.split('-').map(Number)
+      const first = new Date(ys, ms-1, 1)
+      const last = endOfMonthDate(ys, ms-1)
+      return last >= range.start && first <= range.end
+    })
+    return {months: filteredMonths, byM}
   }
   
   return {months, byM}
 }
 
 function filteredTransactions(){
-  if(PERIOD_FILTER.mode === 'month' && PERIOD_FILTER.singleMonth) {
-    // Режим одного месяца
-    return STATE.vault.transactions.filter(t => {
-      const month = monthKey(new Date(t.date))
-      if(month !== PERIOD_FILTER.singleMonth) return false
-      if(TX_FILTER==='income') return (t.amount||0) >= 0
-      if(TX_FILTER==='expense') return (t.amount||0) < 0
-      return true
-    })
-  } else if(PERIOD_FILTER.mode === 'period' && PERIOD_FILTER.fromMonth && PERIOD_FILTER.toMonth) {
-    // Режим периода
-    return STATE.vault.transactions.filter(t => {
-      const month = monthKey(new Date(t.date))
-      if(!(month >= PERIOD_FILTER.fromMonth && month <= PERIOD_FILTER.toMonth)) return false
-      if(TX_FILTER==='income') return (t.amount||0) >= 0
-      if(TX_FILTER==='expense') return (t.amount||0) < 0
-      return true
-    })
-  } else if(PERIOD_FILTER.mode === 'year' && PERIOD_FILTER.singleYear) {
-    // Режим года
-    return STATE.vault.transactions.filter(t => {
-      const m = monthKey(new Date(t.date))
-      if(!m.startsWith(PERIOD_FILTER.singleYear + '-')) return false
-      if(TX_FILTER==='income') return (t.amount||0) >= 0
-      if(TX_FILTER==='expense') return (t.amount||0) < 0
-      return true
-    })
+  function categoryMatch(t){
+    const cat = t.category || ''
+    if(CAT_FILTER==='all') return true
+    if(CAT_FILTER==='__none__') return !cat
+    return cat === CAT_FILTER
   }
-  
-  return [...STATE.vault.transactions].filter(t=>{
+  // Универсальная фильтрация по диапазону дат для всех режимов
+  const range = resolveSelectedRange()
+  const start = range.start
+  const end = range.end
+  return STATE.vault.transactions.filter(t => {
+    const d = new Date(t.date)
+    if(!(d>=start && d<=end)) return false
+    if(!categoryMatch(t)) return false
+    if(TX_FILTER==='income') return (t.amount||0) >= 0
+    if(TX_FILTER==='expense') return (t.amount||0) < 0
+    return true
+  })
+}
+
+// Отдельная выборка для диаграммы расходов: игнорирует фильтр категории
+function filteredTransactionsWithoutCategory(){
+  const range = resolveSelectedRange()
+  const start = range.start
+  const end = range.end
+  return STATE.vault.transactions.filter(t=>{
+    const d = new Date(t.date)
+    if(!(d>=start && d<=end)) return false
     if(TX_FILTER==='income') return (t.amount||0) >= 0
     if(TX_FILTER==='expense') return (t.amount||0) < 0
     return true
@@ -422,16 +610,11 @@ function computeMonthlySumsByCategory(filteredMonths){
     const m = monthKey(new Date(t.date))
     if(!monthsSet.has(m)) continue
     const cat = t.category || ''
-    if(target==='all'){
-      // учитываем все категории
-    }else if(target==='__none__'){
-      if(cat) continue
-    }else{
-      if(cat !== target) continue
-    }
+    if(target==='__none__' && cat) continue
+    if(target!=='all' && target!=='__none__' && cat !== target) continue
     const amount = +t.amount || 0
     const slot = (result[m]||(result[m]={income:0,expense:0}))
-    if(amount>=0) slot.income += amount; else slot.expense += -amount
+    if(amount>=0) slot.income += amount; else slot.expense -= Math.min(0, amount)
   }
   return result
 }
@@ -450,7 +633,9 @@ function applyCatRulesToAllTransactions(){
 
 // ===== РЕНДЕР =====
 function render(){
-  $('#side').innerHTML = sideUI()
+  // Убираем правую панель и растягиваем дашборд
+  const appEl = document.querySelector('.app'); if(appEl) appEl.classList.add('no-side')
+  $('#side').innerHTML = ''
   $('#main').innerHTML = mainUI()
   bindSide()
   bindMain()
@@ -491,17 +676,7 @@ function sideUI(){
     </div>
   </div>
 
-  <div class="card">
-    <h3>Категории</h3>
-    <div class="hr"></div>
-    <div class="grid-sm">
-      <label class="btn" for="inputImportCats">Импорт</label>
-      <button id="btnExportCats" class="btn">Экспорт</button>
-      <button id="btnOpenCats2" class="btn">Открыть</button>
-      <input id="inputImportCats" type="file" accept="application/json,.json" class="hidden" />
-    </div>
-    <div class="help" style="margin-top:8px">JSON с полями <code>categories</code> и <code>catRules</code>.</div>
-  </div>`
+  `
 }
 
 function mainUI(){
@@ -519,10 +694,11 @@ function mainUI(){
     if(!PERIOD_FILTER.singleMonth){ PERIOD_FILTER.singleMonth = lastM || months[months.length-1] }
   }
   
-  // Вычисляем статистику на основе фильтра
+  // Вычисляем статистику на основе фильтра (с учётом выбранной категории)
   const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
-  const totalIncome = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='expense')?0:(filteredByM[m]?.income||0)),0)
-  const totalExpense = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='income')?0:(filteredByM[m]?.expense||0)),0)
+  const sumsCat0 = computeMonthlySumsByCategory(filteredMonths)
+  const totalIncome = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='expense')?0:(sumsCat0[m]?.income||0)),0)
+  const totalExpense = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='income')?0:(sumsCat0[m]?.expense||0)),0)
   const totalNet = totalIncome - totalExpense
   
   const allSearched = getFilteredAndSearchedTransactions()
@@ -530,22 +706,34 @@ function mainUI(){
 
   return `
   <div id="helpBlock" style="display:none">${helpHTML()}</div>
-  <div class="card filter-card" style="margin-top:12px">
+  <div class="card filter-card">
     <div class="filter-header">
       <h3>Фильтр операций</h3>
-      <div class="inline"><button id="btnOpenCats" class="btn">Категории</button><button id="btnOpenAdd" class="primary">Добавить запись</button></div>
+      <div class="inline"><button id="btnOpenStmt" class="btn">Выписки</button><button id="btnOpenCats" class="btn">Категории</button><button id="btnOpenAdd" class="primary">Добавить запись</button></div>
     </div>
     
     <div class="filter-body">
       <div class="filter-controls-grid">
         <div class="filter-section">
-          <label class="filter-label">Тип операций</label>
-          <select id="txType" class="filter-select">
-            <option value="all">Все операции</option>
-            <option value="income">Только доходы</option>
-            <option value="expense">Только расходы</option>
-            <option value="byCategory">По категории</option>
-          </select>
+          <label class="filter-label">Операции</label>
+          <div class="filter-mode-tabs">
+            <label class="filter-tab">
+              <input type="radio" name="txFilter" value="all" ${TX_FILTER==='all'?'checked':''}>
+              <span>Все</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="txFilter" value="income" ${TX_FILTER==='income'?'checked':''}>
+              <span>Доходы</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="txFilter" value="expense" ${TX_FILTER==='expense'?'checked':''}>
+              <span>Расходы</span>
+            </label>
+          </div>
+          <div id="categoryFilterSection" class="filter-section" style="margin-top:8px">
+            <label class="filter-label">Категория</label>
+            <select id="catFilterGlobal" class="filter-select"><option value="all">Все категории</option><option value="__none__">Без категории</option>${(STATE.vault.categories||[]).map(c=>`<option ${CAT_FILTER===c?'selected':''} value="${c}">${c}</option>`).join('')}</select>
+          </div>
         </div>
         
         <div class="filter-section">
@@ -556,34 +744,109 @@ function mainUI(){
               <span>Год</span>
             </label>
             <label class="filter-tab">
+              <input type="radio" name="filterMode" value="season" ${PERIOD_FILTER.mode==='season'?'checked':''}>
+              <span>Сезон</span>
+            </label>
+            <label class="filter-tab">
               <input type="radio" name="filterMode" value="month" ${PERIOD_FILTER.mode==='month'?'checked':''}>
               <span>Месяц</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="filterMode" value="week" ${PERIOD_FILTER.mode==='week'?'checked':''}>
+              <span>Неделя</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="filterMode" value="day" ${PERIOD_FILTER.mode==='day'?'checked':''}>
+              <span>День</span>
             </label>
             <label class="filter-tab">
               <input type="radio" name="filterMode" value="period" ${PERIOD_FILTER.mode==='period'?'checked':''}>
               <span>Диапазон</span>
             </label>
           </div>
-        </div>
-        
-        <div class="filter-section filter-params">
-          <div id="yearControls" class="filter-param-group">
-            <select id="globalYear" class="filter-select"></select>
-          </div>
-          <div id="monthControls" class="filter-param-group" style="display:none">
-            <select id="globalSingleMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.singleMonth?'selected':''}>${m}</option>`).join('')}</select>
-          </div>
-          <div id="periodControls" class="filter-param-group period-group" style="display:none">
-            <div class="period-inputs">
-              <div class="period-input">
-                <label>От</label>
-                <select id="globalFromMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.fromMonth?'selected':''}>${m}</option>`).join('')}</select>
-              </div>
-              <div class="period-input">
-                <label>До</label>
-                <select id="globalToMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.toMonth?'selected':''}>${m}</option>`).join('')}</select>
+          <div class="filter-params">
+            <div id="yearControls" class="filter-param-group">
+              <select id="globalYear" class="filter-select"></select>
+            </div>
+            <div id="seasonControls" class="filter-param-group" style="display:none">
+              <label>Сезон</label>
+              <select id="seasonCombined" class="filter-select"></select>
+            </div>
+            <div id="monthControls" class="filter-param-group" style="display:none">
+              <select id="globalSingleMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.singleMonth?'selected':''}>${m}</option>`).join('')}</select>
+            </div>
+            <div id="periodControls" class="filter-param-group period-group" style="display:none">
+              <div class="period-inputs">
+                <div class="period-input">
+                  <label>От</label>
+                  <select id="globalFromMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.fromMonth?'selected':''}>${m}</option>`).join('')}</select>
+                </div>
+                <div class="period-input">
+                  <label>До</label>
+                  <select id="globalToMonth" class="filter-select">${months.map(m=>`<option ${m===PERIOD_FILTER.toMonth?'selected':''}>${m}</option>`).join('')}</select>
+                </div>
               </div>
             </div>
+            <div id="weekControls" class="filter-param-group period-group" style="display:none">
+              <div class="period-inputs">
+                <div class="period-input">
+                  <label>Год</label>
+                  <select id="weekYear" class="filter-select"></select>
+                </div>
+                <div class="period-input">
+                  <label>Неделя</label>
+                  <select id="weekNumber" class="filter-select"></select>
+                </div>
+              </div>
+            </div>
+            <div id="dayControls" class="filter-param-group period-group" style="display:none">
+              <div class="period-inputs">
+                <div class="period-input">
+                  <label>Год</label>
+                  <select id="dayYear" class="filter-select"></select>
+                </div>
+                <div class="period-input">
+                  <label>Месяц</label>
+                  <select id="dayMonth" class="filter-select"></select>
+                </div>
+                <div class="period-input">
+                  <label>День</label>
+                  <select id="dayDay" class="filter-select"></select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="filter-section">
+          <label class="filter-label">Агрегация</label>
+          <div class="filter-mode-tabs">
+            <label class="filter-tab">
+              <input type="radio" name="aggMode" value="month" ${ (window.UI&&UI.aggMode?UI.aggMode:'month')==='month'?'checked':'' }>
+              <span>Месяц</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="aggMode" value="week" ${ (window.UI&&UI.aggMode?UI.aggMode:'month')==='week'?'checked':'' }>
+              <span>Неделя</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="aggMode" value="day" ${ (window.UI&&UI.aggMode?UI.aggMode:'month')==='day'?'checked':'' }>
+              <span>День</span>
+            </label>
+          </div>
+          <label class="filter-label">Прогноз</label>
+          <div class="filter-mode-tabs">
+            <label class="filter-tab">
+              <input type="radio" name="forecastMode" value="off" ${ !(window.UI&&UI.forecast)?'checked':'' }>
+              <span>Выкл</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="forecastMode" value="eoy" ${ (window.UI&&UI.forecast)?'checked':'' }>
+              <span>До конца периода</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="forecastMode" value="avg12" ${ (window.UI&&UI.forecastMode==='avg12')?'checked':'' }>
+              <span>Усреднённый доход</span>
+            </label>
           </div>
         </div>
       </div>
@@ -591,30 +854,30 @@ function mainUI(){
       <div class="filter-stats-row">
         <div class="stat-card income">
           <span class="stat-label">Доходы</span>
-          <span id="incomeValue" class="stat-value">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalIncome)}</span>
+          <span id="incomeValue" class="stat-value">${formatAmountDisplay(totalIncome)}</span>
         </div>
         <div class="stat-card expense">
           <span class="stat-label">Расходы</span>
-          <span id="expenseValue" class="stat-value">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalExpense)}</span>
+          <span id="expenseValue" class="stat-value">${formatAmountDisplay(totalExpense)}</span>
         </div>
         <div class="stat-card net ${totalNet>=0?'positive':'negative'}">
           <span class="stat-label">Итого</span>
-          <span id="netValue" class="stat-value">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalNet)}</span>
+          <span id="netValue" class="stat-value">${formatAmountDisplay(totalNet)}</span>
         </div>
       </div>
     </div>
   </div>
 
   <div class="row cols-2" style="margin-top:12px">
-    <div class="card"><div class="controls"><b>Доходы/Расходы по месяцам</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="bar">⤢</button></div><canvas id="bar"></canvas></div>
-    <div class="card"><div class="controls"><b>Чистый итог по месяцам</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="line">⤢</button></div><canvas id="line"></canvas></div>
+    <div class="card"><div class="controls"><b>Доходы / Расходы</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="bar">⤢</button></div><canvas id="bar"></canvas></div>
+    <div class="card"><div class="controls"><b>Чистый итог</b><span class="right"></span><button class="icon-btn" title="Развернуть" data-expand="line">⤢</button></div><canvas id="line"></canvas></div>
   </div>
 
   <div class="row cols-2" style="margin-top:12px">
     <div class="card">
       <div class="controls"><b>Анализ расходов</b>
         <span class="right"></span>
-        <button class="icon-btn" title="Развернуть" data-expand="pie" style="margin-left:8px">⤢</button>
+        <button class="icon-btn" title="Развернуть" data-expand="pie">⤢</button>
       </div>
       <canvas id="pie"></canvas>
     </div>
@@ -622,16 +885,15 @@ function mainUI(){
       <div class="controls">
         <b>Операции</b>
         <span class="right"></span>
-        <label class="pill" style="margin-left:8px">Последние <input id="recentLimit" type="number" min="1" max="50" value="${RECENT_LIMIT}" style="width:60px;margin-left:4px"> из <span id="recentTotalCount">${allSearched.length}</span></label>
-        <select id="catFilter" title="Категория" class="filter-select" style="width:auto"><option value="all">Все категории</option><option value="__none__">Без категории</option>${(STATE.vault.categories||[]).map(c=>`<option ${CAT_FILTER===c?'selected':''} value="${c}">${c}</option>`).join('')}</select>
-        <input id="searchInput" type="text" placeholder="Поиск по описанию..." value="${SEARCH_TEXT}" style="width:180px">
-        <button class="icon-btn" title="Развернуть" data-expand="recent" style="margin-left:8px">⤢</button>
+        <label class="pill">Последние <input id="recentLimit" type="number" min="1" max="50" value="${RECENT_LIMIT}"> из <span id="recentTotalCount">${allSearched.length}</span></label>
+        <input id="searchInput" type="text" placeholder="Поиск по описанию..." value="${SEARCH_TEXT}" class="search-ops">
+        <button class="icon-btn" title="Развернуть" data-expand="recent">⤢</button>
       </div>
       <div class="table-scroll">
         <table>
           <thead><tr><th>Дата</th><th>Описание <button data-copy-desc="1" class="icon-btn" title="Скопировать описания (JSON)">📋</button></th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
           <tbody>
-            ${recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
+            ${recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -648,31 +910,161 @@ function mainUI(){
 function bindMain(){
   const {months,byM}=monthBuckets()
   
-  // Для столбчатой диаграммы используем фильтрованные данные
-  const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
-  const barLabels = filteredMonths
-  let barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
-  let barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
-  if(TX_FILTER==='income'){ barExpenses = barExpenses.map(()=>0) }
-  if(TX_FILTER==='expense'){ barIncomes = barIncomes.map(()=>0) }
-  
-  // Для линейной диаграммы используем фильтрованные данные
-  const lineLabels = filteredMonths
-  const lineNets = filteredMonths.map(m=>{
-    const mData = filteredByM[m]||{income:0,expense:0,net:0}
-    if(TX_FILTER==='income') return mData.income||0
-    if(TX_FILTER==='expense') return -(mData.expense||0)
-    return mData.net||0
-  })
+  // Агрегация и прогноз
+  function getISOWeekYear(d){
+    const dt = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+    const dayNum = dt.getUTCDay() || 7
+    dt.setUTCDate(dt.getUTCDate() + 4 - dayNum)
+    const yearStart = new Date(Date.UTC(dt.getUTCFullYear(),0,1))
+    const week = Math.ceil((((dt - yearStart)/86400000) + 1)/7)
+    return {year: dt.getUTCFullYear(), week}
+  }
+  function monthStr(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` }
+  function endOfYearDate(d){ return new Date(d.getFullYear(),11,31) }
+  function startOfNextMonth(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y, m, 1) }
+  function aggregateForCharts(){
+    const aggMode = (window.UI&&UI.aggMode)||'month'
+    const forecastMode = (window.UI && UI.forecastMode) || ((window.UI&&UI.forecast)?'eoy':'off')
+    const range = resolveSelectedRange()
+    const kind = aggMode==='week' ? 'week' : aggMode==='day' ? 'day' : 'month'
+    const buckets = generateBuckets(range, kind)
+    const labels = buckets.map(b=>b.label)
+    const tx = filteredTransactions()
+    function keyOf(d){
+      if(kind==='month') return monthKey(d)
+      if(kind==='week') return isoWeekLabel(d)
+      return String(formatISODate(d))
+    }
+    const sums = new Map()
+    for(const t of tx){
+      const d = new Date(t.date)
+      const k = keyOf(d)
+      const slot = sums.get(k) || {inc:0,exp:0}
+      const a=+t.amount||0
+      if(a>=0) slot.inc += a; else slot.exp += -a
+      sums.set(k, slot)
+    }
+    let incomes = labels.map(l=> (sums.get(l)?.inc||0))
+    let expenses = labels.map(l=> (sums.get(l)?.exp||0))
+    const hasActual = labels.map(l=> ((sums.get(l)?.inc||0)!==0) || ((sums.get(l)?.exp||0)!==0))
+    let forecastFromIndex = null
+    if(forecastMode==='eoy' && labels.length){
+      // Прогноз начиная с первой будущей корзины относительно последней даты фактических данных
+      const txAll = filteredTransactions()
+      const lastActualDate = txAll.length ? new Date(Math.max(...txAll.map(t=>+new Date(t.date)))) : new Date()
+      const idx = buckets.findIndex(b=> b.start > lastActualDate)
+      if(idx>=0){
+        forecastFromIndex = idx
+        const baseSliceInc = incomes.slice(0, idx)
+        const baseSliceExp = expenses.slice(0, idx)
+        const avgInc = baseSliceInc.length ? baseSliceInc.reduce((a,b)=>a+b,0)/baseSliceInc.length : 0
+        const avgExp = baseSliceExp.length ? baseSliceExp.reduce((a,b)=>a+b,0)/baseSliceExp.length : 0
+        for(let i=idx;i<labels.length;i++){ incomes[i]=avgInc; expenses[i]=avgExp }
+      }
+    }
+    // Бейзлайн по среднему за 12 мес, приведенный к текущей агрегации
+    let baseline = null
+    if(forecastMode==='avg12'){
+      const now = new Date()
+      const start12 = new Date(now.getFullYear(), now.getMonth()-11, 1)
+      const end12 = new Date(now.getFullYear(), now.getMonth()+1, 0)
+      const monthly = {}
+      for(const t of STATE.vault.transactions){
+        const d=new Date(t.date)
+        if(d>=start12 && d<=end12){
+          const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+          const slot = (monthly[mk]||(monthly[mk]={inc:0,exp:0,net:0}))
+          const a=+t.amount||0
+          if(a>=0) slot.inc+=a; else slot.exp+=-a
+          slot.net+=a
+        }
+      }
+      const months12 = Object.keys(monthly).sort()
+      const avg = { inc:0, exp:0, net:0 }
+      if(months12.length){
+        for(const m of months12){ avg.inc+=monthly[m].inc; avg.exp+=monthly[m].exp; avg.net+=monthly[m].net }
+        avg.inc/=months12.length; avg.exp/=months12.length; avg.net/=months12.length
+      }
+      // Рассчитываем масштабированные значения под агрегацию
+      let incScaled = avg.inc, expScaled = avg.exp
+      if(kind==='week'){
+        const coeff = 12/52; incScaled = avg.inc*coeff; expScaled = avg.exp*coeff
+      }else if(kind==='day'){
+        const coeff = 12/365; incScaled = avg.inc*coeff; expScaled = avg.exp*coeff
+      }
+      const netScaled = incScaled - expScaled
+      // Линия-бейзлайн для графика чистого итога (ориентируется на текущий TX_FILTER)
+      if(TX_FILTER==='income') baseline = labels.map(()=>incScaled)
+      else if(TX_FILTER==='expense') baseline = labels.map(()=>-expScaled)
+      else baseline = labels.map(()=>netScaled)
+      // По требованию: заменить зелёные столбики (доходы) на усреднённые
+      incomes = labels.map(()=>incScaled)
+    }
+    if(TX_FILTER==='income'){ expenses = expenses.map(()=>0) }
+    if(TX_FILTER==='expense'){ incomes = incomes.map(()=>0) }
 
-  drawBarChart($('#bar'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
-  drawLineChart($('#line'), lineLabels, lineNets)
+    // Удаляем корзины без данных: не рисуем нули для месяцев/недель/дней без операций.
+    // Прогнозные точки сохраняем только если значения прогноза ненулевые.
+    const keepIdx = []
+    for(let i=0;i<labels.length;i++){
+      const isForecast = (forecastFromIndex!=null) && (i>=forecastFromIndex)
+      const forecastNonZero = ((incomes[i]||0)!==0 || (expenses[i]||0)!==0)
+      if(hasActual[i] || (isForecast && forecastNonZero)){
+        keepIdx.push(i)
+      }
+    }
+    let labelsF = labels, incomesF = incomes, expensesF = expenses, forecastFromIndexF = forecastFromIndex, baselineF = baseline
+    if(keepIdx.length && keepIdx.length!==labels.length){
+      labelsF = keepIdx.map(i=>labels[i])
+      incomesF = keepIdx.map(i=>incomes[i])
+      expensesF = keepIdx.map(i=>expenses[i])
+      if(Array.isArray(baseline) && baseline.length===labels.length){
+        baselineF = keepIdx.map(i=>baseline[i])
+      }
+      if(forecastFromIndex!=null){
+        const firstForecastPos = keepIdx.findIndex(i=>i>=forecastFromIndex)
+        forecastFromIndexF = firstForecastPos>=0 ? firstForecastPos : null
+      }
+    } else if(keepIdx.length===0){
+      // Все точки пустые — очищаем массивы полностью
+      labelsF = []
+      incomesF = []
+      expensesF = []
+      baselineF = null
+      forecastFromIndexF = null
+    }
+
+    const lineValues = labelsF.map((_,i)=>{
+      const inc = incomesF[i]||0, exp = expensesF[i]||0
+      if(TX_FILTER==='income') return inc
+      if(TX_FILTER==='expense') return -exp
+      return inc - exp
+    })
+    return { labels: labelsF, incomes: incomesF, expenses: expensesF, lineValues, forecastFromIndex: forecastFromIndexF, baseline: baselineF }
+  }
+
+  const agg = aggregateForCharts()
+  const barLabels = agg.labels
+  let barIncomes = agg.incomes
+  let barExpenses = agg.expenses
+  const lineLabels = agg.labels
+  const lineNets = agg.lineValues
+  const baseline = agg.baseline
+
+  const forecastOpts = agg.forecastFromIndex!=null?{forecastFrom: agg.forecastFromIndex}:{}
+  // Convert to display currency before drawing
+  const barIncomesD = (barIncomes||[]).map(v=>convertValue(v))
+  const barExpensesD = (barExpenses||[]).map(v=>convertValue(v))
+  const lineNetsD = (lineNets||[]).map(v=>convertValue(v))
+  const baselineD = Array.isArray(baseline) ? baseline.map(v=>convertValue(v)) : null
+  drawBarChart($('#bar'), barLabels, [barIncomesD, barExpensesD], ['Доходы','Расходы'], forecastOpts)
+  drawLineChart($('#line'), lineLabels, lineNetsD, Object.assign({}, forecastOpts, baselineD?{baselineValues: baselineD}:{}))
 
   function drawPieChart(){
     const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
     // Суммируем только расходы по категориям на основе фильтрованных транзакций
     const totalByCat = {}
-    const txForCats = filteredTransactions().filter(t => (t.amount||0) < 0)
+    const txForCats = filteredTransactionsWithoutCategory().filter(t => (t.amount||0) < 0)
     txForCats.forEach(t=>{
       const cat = t.category||'Без категории'
       totalByCat[cat] = (totalByCat[cat]||0) + Math.abs(t.amount||0)
@@ -690,43 +1082,58 @@ function bindMain(){
   if(periodControls) periodControls.style.display = (PERIOD_FILTER.mode==='period') ? 'flex' : 'none'
   if(monthControls) monthControls.style.display = (PERIOD_FILTER.mode==='month') ? 'flex' : 'none'
   if(yearControls) yearControls.style.display = (PERIOD_FILTER.mode==='year') ? 'flex' : 'none'
-  // Фильтр по типу операций
-  const txType = $('#txType')
-  if(txType){
-    txType.value = (window.UI && UI.txFilter) ? UI.txFilter : TX_FILTER
-    txType.onchange = () => {
+  const seasonControls = $('#seasonControls')
+  const weekControls = $('#weekControls')
+  const dayControls = $('#dayControls')
+  if(seasonControls) seasonControls.style.display = (PERIOD_FILTER.mode==='season') ? 'flex' : 'none'
+  if(weekControls) weekControls.style.display = (PERIOD_FILTER.mode==='week') ? 'flex' : 'none'
+  if(dayControls) dayControls.style.display = (PERIOD_FILTER.mode==='day') ? 'flex' : 'none'
+  // Переключатель Доходы/Расходы
+  $$('input[name="txFilter"]').forEach(radio => {
+    radio.checked = radio.value === ((window.UI && UI.txFilter) ? UI.txFilter : TX_FILTER)
+    radio.onchange = () => {
       window.UI = window.UI || {}
-      UI.txFilter = txType.value
-      TX_FILTER = txType.value
+      UI.txFilter = radio.value
+      TX_FILTER = radio.value
       updateAllCharts()
     }
-  }
+  })
+  // Переключатель Агрегации
+  $$('input[name="aggMode"]').forEach(radio => {
+    radio.checked = radio.value === ((window.UI && UI.aggMode) ? UI.aggMode : 'month')
+    radio.onchange = () => {
+      window.UI = window.UI || {}
+      UI.aggMode = radio.value
+      updateAllCharts()
+    }
+  })
+  // Переключатель Прогноза
+  $$('input[name="forecastMode"]').forEach(radio => {
+    const current = (window.UI && (UI.forecastMode || (UI.forecast ? 'eoy' : 'off'))) || 'off'
+    radio.checked = (radio.value === current)
+    radio.onchange = () => {
+      window.UI = window.UI || {}
+      UI.forecastMode = radio.value
+      UI.forecast = (radio.value === 'eoy')
+      updateAllCharts()
+    }
+  })
   // Глобальные обработчики фильтрации
   function updateAllCharts(){
-    const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
-    const barLabels = filteredMonths
-    let barIncomes, barExpenses, lineNets
-    if(TX_FILTER==='byCategory'){
-      const sums = computeMonthlySumsByCategory(filteredMonths)
-      barIncomes = filteredMonths.map(m=> (sums[m]?.income||0))
-      barExpenses = filteredMonths.map(m=> (sums[m]?.expense||0))
-      lineNets = filteredMonths.map(m=> (sums[m]?.income||0) - (sums[m]?.expense||0))
-    } else {
-      barIncomes = filteredMonths.map(m=>filteredByM[m]?.income || 0)
-      barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
-      if(TX_FILTER==='income'){ barExpenses = barExpenses.map(()=>0) }
-      if(TX_FILTER==='expense'){ barIncomes = barIncomes.map(()=>0) }
-      lineNets = filteredMonths.map(m=>{
-        const mData = filteredByM[m]||{income:0,expense:0,net:0}
-        if(TX_FILTER==='income') return mData.income||0
-        if(TX_FILTER==='expense') return -(mData.expense||0)
-        return mData.net||0
-      })
-    }
-    
-    drawBarChart($('#bar'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
-    drawLineChart($('#line'), barLabels, lineNets)
-    drawPieChart()
+    const agg = aggregateForCharts()
+    const barLabels = agg.labels
+    let barIncomes = agg.incomes
+    let barExpenses = agg.expenses
+    const lineNets = agg.lineValues
+    const forecastOpts = agg.forecastFromIndex!=null?{forecastFrom: agg.forecastFromIndex}:{}
+    // Convert to display currency before drawing
+    const barIncomesD = (barIncomes||[]).map(v=>convertValue(v))
+    const barExpensesD = (barExpenses||[]).map(v=>convertValue(v))
+    const lineNetsD = (lineNets||[]).map(v=>convertValue(v))
+    const baselineD = Array.isArray(agg.baseline) ? agg.baseline.map(v=>convertValue(v)) : null
+    drawBarChart($('#bar'), barLabels, [barIncomesD, barExpensesD], ['Доходы','Расходы'], forecastOpts)
+    drawLineChart($('#line'), barLabels, lineNetsD, Object.assign({}, forecastOpts, baselineD?{baselineValues: baselineD}:{}))
+    drawPieChart() // Пирог игнорирует фильтр категории
     
     // Обновляем статистику
     updateStats()
@@ -738,9 +1145,45 @@ function bindMain(){
   window.updateAllCharts = updateAllCharts
   
   function updateStats(){
-    const {months: filteredMonths, byM: filteredByM} = filteredMonthBuckets()
-    const totalIncome = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='expense')?0:(filteredByM[m]?.income||0)),0)
-    const totalExpense = filteredMonths.reduce((s,m)=>s+((TX_FILTER==='income')?0:(filteredByM[m]?.expense||0)),0)
+    const useForecast = !!(window.UI&&UI.forecast)
+    const range = resolveSelectedRange()
+    const kind = ((window.UI&&UI.aggMode)||'month')
+    const buckets = generateBuckets(range, kind==='week'?'week':kind==='day'?'day':'month')
+    const labels = buckets.map(b=>b.label)
+    // Считаем факт по корзинам
+    const tx = filteredTransactions()
+    const sums = new Map()
+    function keyOf(d){
+      if(kind==='week') return isoWeekLabel(d)
+      if(kind==='day') return formatISODate(d)
+      return monthKey(d)
+    }
+    for(const t of tx){
+      const d=new Date(t.date)
+      const k=keyOf(d)
+      const slot = sums.get(k)||{inc:0,exp:0}
+      const a=+t.amount||0; if(a>=0) slot.inc+=a; else slot.exp+=-a
+      sums.set(k,slot)
+    }
+    let incArr = labels.map(l=> (sums.get(l)?.inc||0))
+    let expArr = labels.map(l=> (sums.get(l)?.exp||0))
+    let forecastIdx = null
+    let incForecastSum = 0, expForecastSum = 0
+    if(useForecast && labels.length){
+      const lastActualDate = tx.length ? new Date(Math.max(...tx.map(t=>+new Date(t.date)))) : new Date()
+      forecastIdx = buckets.findIndex(b=> b.start > lastActualDate)
+      if(forecastIdx>=0){
+        const baseInc = incArr.slice(0,forecastIdx)
+        const baseExp = expArr.slice(0,forecastIdx)
+        const avgInc = baseInc.length ? baseInc.reduce((a,b)=>a+b,0)/baseInc.length : 0
+        const avgExp = baseExp.length ? baseExp.reduce((a,b)=>a+b,0)/baseExp.length : 0
+        for(let i=forecastIdx;i<labels.length;i++){ incArr[i]=avgInc; expArr[i]=avgExp; incForecastSum+=avgInc; expForecastSum+=avgExp }
+      }
+    }
+    const factIncome = incArr.reduce((s,v,i)=> s + (forecastIdx!=null && i>=forecastIdx ? 0 : v), 0)
+    const factExpense = expArr.reduce((s,v,i)=> s + (forecastIdx!=null && i>=forecastIdx ? 0 : v), 0)
+    const totalIncome = factIncome + incForecastSum
+    const totalExpense = factExpense + expForecastSum
     const totalNet = totalIncome - totalExpense
     const curr = STATE.vault.currency
     
@@ -750,10 +1193,31 @@ function bindMain(){
     const netEl = $('#netValue')
     const netCard = netEl?.closest('.stat-card')
     
-    if(incomeEl) incomeEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalIncome)
-    if(expenseEl) expenseEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalExpense)
+    if(incomeEl){
+      if(useForecast && incForecastSum>0){
+        incomeEl.innerHTML = `<span style="color:var(--ok)">${formatAmountDisplay(factIncome)}</span> + <span style=\"opacity:.55;color:var(--ok)\">${formatAmountDisplay(incForecastSum)}</span> = <span style=\"opacity:.55;color:var(--ok)\">${formatAmountDisplay(totalIncome)}</span>`
+      }else{
+        incomeEl.textContent = formatAmountDisplay(totalIncome)
+      }
+    }
+    if(expenseEl){
+      if(useForecast && expForecastSum>0){
+        expenseEl.innerHTML = `<span style="color:var(--danger)">${formatAmountDisplay(factExpense)}</span> + <span style=\"opacity:.55;color:var(--danger)\">${formatAmountDisplay(expForecastSum)}</span> = <span style=\"opacity:.55;color:var(--danger)\">${formatAmountDisplay(totalExpense)}</span>`
+      }else{
+        expenseEl.textContent = formatAmountDisplay(totalExpense)
+      }
+    }
     if(netEl) {
-      netEl.textContent = new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(totalNet)
+      if(useForecast && (incForecastSum>0 || expForecastSum>0)){
+        const netFact = factIncome - factExpense
+        const netForecast = incForecastSum - expForecastSum
+        const netFactColor = netFact>=0?'var(--ok)':'var(--danger)'
+        const netForecastColor = netForecast>=0?'var(--ok)':'var(--danger)'
+        const netSumColor = totalNet>=0?'var(--ok)':'var(--danger)'
+        netEl.innerHTML = `<span style="color:${netFactColor}">${formatAmountDisplay(netFact)}</span> + <span style=\"opacity:.55;color:${netForecastColor}\">${formatAmountDisplay(netForecast)}</span> = <span style=\"opacity:.55;color:${netSumColor}\">${formatAmountDisplay(totalNet)}</span>`
+      }else{
+        netEl.textContent = formatAmountDisplay(totalNet)
+      }
       // Обновляем класс карточки для правильного цвета
       if(netCard) {
         netCard.classList.remove('positive', 'negative')
@@ -768,14 +1232,14 @@ function bindMain(){
     const curr = STATE.vault.currency
     const tbody = $('#main .table-scroll tbody')
     if(tbody) {
-      tbody.innerHTML = recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
-      // Переназначаем обработчики удаления
-      $$('[data-del-tx]', tbody).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
-      // Инлайн редактор категории
-      $$('[data-edit-cat]', tbody).forEach(b=>{ b.onclick=()=> openQuickCategoryDialog(b.getAttribute('data-edit-cat')) })
-      // Обновляем счётчик "из y"
-      const totalEl = $('#recentTotalCount')
-      if(totalEl) totalEl.textContent = String(allSearched.length)
+      tbody.innerHTML = recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
+        // Переназначаем обработчики удаления
+        $$('[data-del-tx]', tbody).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
+        // Инлайн редактор категории
+        $$('[data-edit-cat]', tbody).forEach(b=>{ b.onclick=()=> openQuickCategoryDialog(b.getAttribute('data-edit-cat')) })
+        // Обновляем счётчик "из y"
+        const totalEl = $('#recentTotalCount')
+        if(totalEl) totalEl.textContent = String(allSearched.length)
     }
   }
 
@@ -786,19 +1250,52 @@ function bindMain(){
       const periodControls = $('#periodControls')
       const monthControls = $('#monthControls')
       const yearControls = $('#yearControls')
+      const seasonControls = $('#seasonControls')
+      const weekControls = $('#weekControls')
+      const dayControls = $('#dayControls')
       
       if(radio.value === 'period') {
         periodControls.style.display = 'flex'
         monthControls.style.display = 'none'
         yearControls.style.display = 'none'
+        if(seasonControls) seasonControls.style.display='none'
+        if(weekControls) weekControls.style.display='none'
+        if(dayControls) dayControls.style.display='none'
       } else if(radio.value === 'month') {
         periodControls.style.display = 'none'
         monthControls.style.display = 'flex'
         yearControls.style.display = 'none'
+        if(seasonControls) seasonControls.style.display='none'
+        if(weekControls) weekControls.style.display='none'
+        if(dayControls) dayControls.style.display='none'
       } else if(radio.value === 'year') {
         periodControls.style.display = 'none'
         monthControls.style.display = 'none'
         yearControls.style.display = 'flex'
+        if(seasonControls) seasonControls.style.display='none'
+        if(weekControls) weekControls.style.display='none'
+        if(dayControls) dayControls.style.display='none'
+      } else if(radio.value === 'season') {
+        periodControls.style.display = 'none'
+        monthControls.style.display = 'none'
+        yearControls.style.display = 'none'
+        if(seasonControls) seasonControls.style.display='flex'
+        if(weekControls) weekControls.style.display='none'
+        if(dayControls) dayControls.style.display='none'
+      } else if(radio.value === 'week') {
+        periodControls.style.display = 'none'
+        monthControls.style.display = 'none'
+        yearControls.style.display = 'none'
+        if(seasonControls) seasonControls.style.display='none'
+        if(weekControls) weekControls.style.display='flex'
+        if(dayControls) dayControls.style.display='none'
+      } else if(radio.value === 'day') {
+        periodControls.style.display = 'none'
+        monthControls.style.display = 'none'
+        yearControls.style.display = 'none'
+        if(seasonControls) seasonControls.style.display='none'
+        if(weekControls) weekControls.style.display='none'
+        if(dayControls) dayControls.style.display='flex'
       }
       updateAllCharts()
     }
@@ -836,14 +1333,89 @@ function bindMain(){
     }
   }
 
+  // Квартал: год + квартал
+  const quarterYear = $('#quarterYear')
+  const quarterSelect = $('#quarterSelect')
+  // Сезон комбинированный селектор "YYYY Сезон"
+  const seasonCombined = $('#seasonCombined')
+  if(seasonCombined){
+    const {months} = monthBuckets()
+    const years = Array.from(new Set(months.map(m=>m.split('-')[0]))).sort()
+    const seasons = [
+      {key:'spring', label:'Весна'},
+      {key:'summer', label:'Лето'},
+      {key:'autumn', label:'Осень'},
+      {key:'winter', label:'Зима'}
+    ]
+    const makeVal = (y,s) => `${y}:${s}`
+    const currentVal = makeVal(PERIOD_FILTER.singleYear||years[years.length-1], PERIOD_FILTER.singleSeason||'spring')
+    seasonCombined.innerHTML = years.map(y=> seasons.map(s=>`<option value="${makeVal(y,s.key)}" ${currentVal===makeVal(y,s.key)?'selected':''}>${y} ${s.label}</option>`).join('')).join('')
+    seasonCombined.onchange = () => {
+      const [y,s] = String(seasonCombined.value||'').split(':')
+      PERIOD_FILTER.singleYear = y
+      PERIOD_FILTER.singleSeason = s||'spring'
+      updateAllCharts()
+    }
+  }
+
+  // Недели: год + номер недели (ISO)
+  const weekYearSel = $('#weekYear')
+  const weekNumberSel = $('#weekNumber')
+  if(weekYearSel){
+    const {months} = monthBuckets()
+    const years = Array.from(new Set(months.map(m=>m.split('-')[0]))).sort()
+    const curYear = PERIOD_FILTER.weekYear || PERIOD_FILTER.singleYear || years[years.length-1]
+    weekYearSel.innerHTML = years.map(y=>`<option ${String(y)===String(curYear)?'selected':''}>${y}</option>`).join('')
+    weekYearSel.onchange = () => { PERIOD_FILTER.weekYear = weekYearSel.value; populateWeekNumbers(); updateAllCharts() }
+  }
+  function populateWeekNumbers(){
+    if(!weekNumberSel) return
+    const y = Number(PERIOD_FILTER.weekYear || new Date().getFullYear())
+    const maxWeeks = 53
+    const current = PERIOD_FILTER.weekNumber || 1
+    weekNumberSel.innerHTML = Array.from({length:maxWeeks}, (_,i)=>i+1).map(w=>`<option value="${w}" ${Number(current)===w?'selected':''}>W${String(w).padStart(2,'0')}</option>`).join('')
+    weekNumberSel.onchange = () => { PERIOD_FILTER.weekNumber = parseInt(weekNumberSel.value)||1; updateAllCharts() }
+  }
+  if(weekNumberSel){ populateWeekNumbers() }
+
+  // День: год + месяц + день
+  const dayYearSel = $('#dayYear')
+  const dayMonthSel = $('#dayMonth')
+  const dayDaySel = $('#dayDay')
+  if(dayYearSel){
+    const {months} = monthBuckets()
+    const years = Array.from(new Set(months.map(m=>m.split('-')[0]))).sort()
+    const curY = PERIOD_FILTER.dayYear || PERIOD_FILTER.singleYear || years[years.length-1]
+    dayYearSel.innerHTML = years.map(y=>`<option ${String(y)===String(curY)?'selected':''}>${y}</option>`).join('')
+    dayYearSel.onchange = () => { PERIOD_FILTER.dayYear = dayYearSel.value; populateDayMonths(); populateDayDays(); updateAllCharts() }
+  }
+  function populateDayMonths(){
+    if(!dayMonthSel) return
+    const curM = Number(PERIOD_FILTER.dayMonth || new Date().getMonth()+1)
+    dayMonthSel.innerHTML = Array.from({length:12},(_,i)=>i+1).map(m=>`<option value="${m}" ${curM===m?'selected':''}>${String(m).padStart(2,'0')}</option>`).join('')
+    dayMonthSel.onchange = () => { PERIOD_FILTER.dayMonth = parseInt(dayMonthSel.value)||1; populateDayDays(); updateAllCharts() }
+  }
+  function populateDayDays(){
+    if(!dayDaySel) return
+    const y = Number(PERIOD_FILTER.dayYear || new Date().getFullYear())
+    const m = Number(PERIOD_FILTER.dayMonth || new Date().getMonth()+1)
+    const dim = daysInMonth(y, m-1)
+    const curD = Number(PERIOD_FILTER.dayDay || 1)
+    dayDaySel.innerHTML = Array.from({length:dim},(_,i)=>i+1).map(d=>`<option value="${d}" ${curD===d?'selected':''}>${String(d).padStart(2,'0')}</option>`).join('')
+    dayDaySel.onchange = () => { PERIOD_FILTER.dayDay = parseInt(dayDaySel.value)||1; updateAllCharts() }
+  }
+  if(dayMonthSel){ populateDayMonths() }
+  if(dayDaySel){ populateDayDays() }
+
   const btn=$('#btnOpenAdd'); if(btn) btn.onclick=openAddModal
   const btnCats=$('#btnOpenCats'); if(btnCats) btnCats.onclick=openCategoriesModal
+  const btnStmt=$('#btnOpenStmt'); if(btnStmt) btnStmt.onclick=openStatementsModal
   $$('[data-expand]').forEach(b=>{ b.onclick=()=>{ openExpanded(b.getAttribute('data-expand')) } })
   $$('[data-del-tx]').forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
   
   // Обработчики для таблицы операций
   const recentLimitInput = $('#recentLimit')
-  const catFilterSel = $('#catFilter')
+  const catFilterSel = $('#catFilterGlobal')
   const searchInput = $('#searchInput')
   
   if(recentLimitInput) {
@@ -856,7 +1428,7 @@ function bindMain(){
     }
   }
   if(catFilterSel){
-    catFilterSel.onchange = () => { CAT_FILTER = catFilterSel.value; updateRecentOperationsTable(); drawPieChart(); if(TX_FILTER==='byCategory') updateAllCharts(); }
+    catFilterSel.onchange = () => { CAT_FILTER = catFilterSel.value; updateRecentOperationsTable(); drawPieChart(); updateAllCharts(); }
   }
   
   if(searchInput) {
@@ -874,6 +1446,16 @@ function bindMain(){
 
   // Инлайн назначение категории для пустых
   $$('[data-edit-cat]').forEach(btn=>{ btn.onclick = ()=> openQuickCategoryDialog(btn.getAttribute('data-edit-cat')) })
+}
+
+function openStatementsModal(){
+  const o=$('#dashOverlay'), m=$('#dashModal'), t=$('#dashModalTitle'), c=$('#dashModalContent')
+  if(!o||!m||!t||!c) return
+  o.style.display='block'; m.style.display='block'
+  c.innerHTML = ''
+  if(t){ t.textContent = 'Выписки (XML/JSON)'; const rs=t.parentElement?.querySelector('.right'); if(rs) rs.innerHTML='' }
+  c.innerHTML = sideUI()
+  bindSide()
 }
 
 function openQuickCategoryDialog(txId){
@@ -961,48 +1543,25 @@ function bindUnlock(){
 
 function bindSide(){
   // Хранилище
-  $('#btnExportVault').onclick=()=>{
-    const data = localStorage.getItem(LS_KEY)
-    if(!data){toast('Нет данных для экспорта','warn');return}
-    download(`ofb-vault-${new Date().toISOString().slice(0,10)}.json`, data)
+  const exportBtn = $('#btnExportVault');
+  if(exportBtn){
+    exportBtn.onclick=()=>{
+      const data = localStorage.getItem(LS_KEY)
+      if(!data){toast('Нет данных для экспорта','warn');return}
+      download(`ofb-vault-${new Date().toISOString().slice(0,10)}.json`, data)
+    }
   }
-  // Категории импорт/экспорт
-  $('#btnExportCats').onclick=()=>{
-    const payload = { categories: STATE.vault.categories||[], catRules: STATE.vault.catRules||[] }
-    download(`ofb-categories-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(payload,null,2))
-  }
-  $('#inputImportCats').onchange=async (e)=>{
-    const f=e.target.files[0]; if(!f) return
-    const t=await f.text();
-    try{
-      const parsed = JSON.parse(t)
-      if(!parsed || typeof parsed!== 'object') throw new Error('bad json')
-      const cats = Array.isArray(parsed.categories) ? parsed.categories : []
-      const rules = Array.isArray(parsed.catRules) ? parsed.catRules : []
-      STATE.vault.categories = cats
-      // нормализуем правила (id может отсутствовать)
-      STATE.vault.catRules = rules.map(r=>({id: r.id || uid(), match: String(r.match||'').trim(), category: String(r.category||'').trim()})).filter(r=>r.match && r.category)
-      // авто-применение правил к существующим транзакциям
-      applyCatRulesToAllTransactions()
-      await saveVault(); render(); toast('Категории и правила импортированы и применены');
-    }catch(err){ toast('Некорректный JSON категорий','warn') }
-    e.target.value=''
-  }
+  // Категории: импорт/экспорт перенесены внутрь модального окна
   const btnOpenCats2=$('#btnOpenCats2'); if(btnOpenCats2) btnOpenCats2.onclick=openCategoriesModal
-  // Убрали отдельную страницу «Справка» — используем встроенный блок «Как пользоваться»
-
   // Унифицированный импорт выписок (XML/JSON)
-  $('#btnDoImportStmt').onclick = doImportStmt
-  $('#btnClearStmt').onclick = () => { 
-    clearFile('stmtFile'); 
-    clearStmtSelection();
-    toast('Выбор файла очищен');
-  }
+  const btnDoImp = $('#btnDoImportStmt'); if(btnDoImp) btnDoImp.onclick = doImportStmt
+  const btnClr = $('#btnClearStmt'); if(btnClr) btnClr.onclick = () => { clearFile('stmtFile'); clearStmtSelection(); toast('Выбор файла очищен'); }
   const dz = $('#stmtDropzone')
-  ;['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.add('drag')}))
-  ;['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.remove('drag')}))
-  dz.addEventListener('drop', async (e)=>{ const f=e.dataTransfer.files?.[0]; if(f){ $('#stmtFile').files = e.dataTransfer.files; await onStmtChosen() } })
-
+  if(dz){
+    ;['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.add('drag')}))
+    ;['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,(e)=>{e.preventDefault(); dz.classList.remove('drag')}))
+    dz.addEventListener('drop', async (e)=>{ const f=e.dataTransfer.files?.[0]; if(f){ $('#stmtFile').files = e.dataTransfer.files; await onStmtChosen() } })
+  }
   // CSV отключён
 }
 
@@ -1281,7 +1840,7 @@ function confirmImportMode(){
       </div>
     </div>`
     document.body.appendChild(wrap)
-    const done=(v)=>{ try{wrap.remove()}catch(_){}; resolve(v) }
+    const done=(v)=>{ try{wrap.remove()}catch(_){ }; resolve(v) }
     $('#impMerge',wrap).onclick=()=>done('merge')
     $('#impReplace',wrap).onclick=()=>{ if(confirm('Заменить текущие операции данными из файла? Это удалит только операции, категории и правила сохранятся.')) done('replace') }
     $('#impCancel',wrap).onclick=()=>done(null)
@@ -1444,7 +2003,10 @@ function renderExpanded(key){
     let barExpenses = filteredMonths.map(m=>filteredByM[m]?.expense || 0)
     if(TX_FILTER==='income'){ barExpenses = barExpenses.map(()=>0) }
     if(TX_FILTER==='expense'){ barIncomes = barIncomes.map(()=>0) }
-    drawBarChart($('#barBig'), barLabels, [barIncomes, barExpenses], ['Доходы','Расходы'])
+    // Convert to display currency before drawing
+    const barIncomesD = barIncomes.map(v=>convertValue(v))
+    const barExpensesD = barExpenses.map(v=>convertValue(v))
+    drawBarChart($('#barBig'), barLabels, [barIncomesD, barExpensesD], ['Доходы','Расходы'])
   }else if(key==='line'){
     t.textContent='Чистый итог по месяцам'
     c.innerHTML=`<canvas id="lineBig" style="height:64vh"></canvas>`
@@ -1457,7 +2019,9 @@ function renderExpanded(key){
       if(TX_FILTER==='expense') return -(mData.expense||0)
       return mData.net||0
     })
-    drawLineChart($('#lineBig'), lineLabels, lineNets)
+    // Convert to display currency before drawing
+    const lineNetsD = lineNets.map(v=>convertValue(v))
+    drawLineChart($('#lineBig'), lineLabels, lineNetsD)
   }else if(key==='pie'){
     t.textContent='Анализ расходов'
     c.innerHTML=`<canvas id="pieBig" style="height:64vh"></canvas>`
@@ -1467,7 +2031,7 @@ function renderExpanded(key){
       
       // Пирог: только расходы по категориям
       const totalByCat = {}
-      const tx = filteredTransactions().filter(t => (t.amount||0) < 0)
+      const tx = filteredTransactionsWithoutCategory().filter(t => (t.amount||0) < 0)
       tx.forEach(t=>{
         const cat=t.category||'Без категории'
         totalByCat[cat]=(totalByCat[cat]||0)+Math.abs(t.amount||0)
@@ -1495,7 +2059,7 @@ function renderExpanded(key){
       const tableContainer = c.querySelector('.table-scroll')
       
       if(tableContainer) {
-        tableContainer.querySelector('tbody').innerHTML = rows.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
+        tableContainer.querySelector('tbody').innerHTML = rows.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
         // Переназначаем обработчики удаления
         $$('[data-del-tx]', tableContainer).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')); updateBigTable() } })
         // Инлайн редактор категории
@@ -1509,7 +2073,7 @@ function renderExpanded(key){
       <table>
         <thead><tr><th>Дата</th><th>Описание <button data-copy-desc="1" class="icon-btn" title="Скопировать описания (JSON)">📋</button></th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
         <tbody>
-          ${rows.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${new Intl.NumberFormat('ru-RU',{style:'currency',currency:curr}).format(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
+          ${rows.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
         </tbody>
       </table>
     </div>`
@@ -1533,9 +2097,9 @@ function renderExpanded(key){
     if(catFilterBig){
       catFilterBig.onchange = () => {
         CAT_FILTER = catFilterBig.value
-        const normalCatSel = $('#catFilter')
+        const normalCatSel = $('#catFilterGlobal')
         if(normalCatSel) normalCatSel.value = CAT_FILTER
-        updateBigTable(); updateRecentOperationsTable(); drawPieChart(); if(TX_FILTER==='byCategory') updateAllCharts()
+        updateBigTable(); updateRecentOperationsTable(); drawPieChart(); updateAllCharts()
       }
     }
     $$('[data-del-tx]', c).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
@@ -1600,7 +2164,7 @@ function guessMapping(head){
 }
 
 function rowToTx(r,map,dec,fmtSel){
-  function parseAmt(s){ if(dec===',') s=s.replace(/\./g,'').replace(',','.') ; return parseFloat(String(s).replace(/\s/g,'')) }
+  function parseAmt(s){ if(dec===',') s=s.replace(/\./g,'').replace(',','.'); return parseFloat(String(s).replace(/\s/g,'')) }
   function parseDateFmt(s){
     if(fmtSel==='auto') return parseDateFlexible(s)
     const m = String(s).match(/(\d{1,4})\D(\d{1,2})\D(\d{1,4})/)
@@ -1672,10 +2236,15 @@ initTheme()
 // Обработчики header
 $('#themeToggle').onclick = toggleTheme
 $('#helpToggle').onclick = toggleHelp
+const st=$('#settingsToggle'); if(st){ st.onclick = ()=>{ try{ PREFS.openModal() }catch(_){ } } }
+// Currency selector: init from PREFS and sync back
+;(function(){ try{ const sc=document.getElementById('selCurrency'); if(sc){ try{ sc.value = getDisplayCurrency() }catch(_){ } sc.onchange = ()=>{ try{ PREFS.set({ preferredCurrency: sc.value }) }catch(_){ } render() } } }catch(_){ } })()
 $('#btnClearStorage').onclick = () => {
   if(confirm('Очистить localStorage (все данные будут удалены)?')) {
     localStorage.removeItem(LS_KEY)
     localStorage.removeItem('finboard_theme')
+    try{ localStorage.removeItem('gn_state') }catch(_){ }
+    try{ localStorage.removeItem('ofb_prefs') }catch(_){ }
     STATE = {unlocked:true, pass:null, vault:emptyVault()}
     window.UI = {}
     render()
@@ -1695,6 +2264,10 @@ ro.observe(document.body)
 function clearFile(id){ const el=$('#'+id); if(!el) return; try{ el.value=''; }catch{ /* ignore */ } }
 
 // helpHTML вынесен в assets/help.js
+
+// При изменении настроек перерисуем дашборд (цвет/шрифт и др.)
+try{ window.addEventListener('prefsChanged', ()=>{ render() }) }catch(_){ }
+try{ window.addEventListener('prefsChanged', ()=>{ const sc=document.getElementById('selCurrency'); if(sc){ try{ sc.value = getDisplayCurrency() }catch(_){ } } render() }) }catch(_){ }
 
 </script>
 </body>

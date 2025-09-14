@@ -6,9 +6,30 @@ html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,"Noto Sans",sans-serif}
 a{color:var(--primary)}
 .app{display:grid;grid-template-columns:280px 1fr;grid-template-rows:auto 1fr;min-height:100vh}
+.app.no-side{grid-template-columns:1fr}
+.app.no-side .side{display:none}
 header{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--grid);background:linear-gradient(180deg,#11151a,#0f1216)}
 header h1{font-size:16px;margin:0;font-weight:650}
 header .tag{background:var(--chip);border:1px solid var(--grid);padding:4px 8px;border-radius:999px;color:var(--muted)}
+header .top-nav{display:flex;align-items:center;gap:8px;margin-left:8px}
+header .top-nav a{color:var(--muted);text-decoration:none;padding:6px 10px;border:1px solid var(--grid);border-radius:8px}
+header .top-nav a.active, header .top-nav a:hover{color:var(--text);border-color:var(--primary)}
+/* Выравнивание иконки 🗑 с остальными кнопками в шапке */
+header .icon-btn{
+  width:32px;
+  height:32px;
+  padding:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--chip);
+  border:1px solid var(--grid);
+  border-radius:8px;
+}
+header .icon-btn:hover{ background:var(--card); border-color:var(--primary) }
+header .icon-btn svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
+/* Унифицируем иконки-кнопки вне header (для модалок и таблиц) */
+.icon-btn svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
 .side{border-right:1px solid var(--grid);padding:14px;overflow:auto}
 .content{padding:16px;overflow:auto}
 .overlay{
@@ -20,7 +41,10 @@ header .tag{background:var(--chip);border:1px solid var(--grid);padding:4px 8px;
 .modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1000px,95vw);max-height:90vh;background:var(--card);border:1px solid var(--grid);border-radius:var(--br);z-index:9998;display:none;overflow:hidden;flex-direction:column}
 .modal[style*="display: block"]{display:flex}
 .modal .head{background:var(--card);padding:12px 16px;border-bottom:1px solid var(--grid);border-top-left-radius:var(--br);border-top-right-radius:var(--br);flex-shrink:0}
-.modal #dashModalContent{padding:16px;overflow:auto;flex:1}
+.modal #dashModalContent{padding:16px;overflow:auto;flex:1;display:block}
+/* Внутри модалки карточка со "Выписками" должна заполнять ширину и быть компактной */
+.modal #dashModalContent .card{margin:0}
+.modal #dashModalContent .controls{min-height:unset}
 .card{background:var(--card);border:1px solid var(--grid);border-radius:var(--br);padding:14px}
 .card + .card{margin-top:12px}
 .row .card + .card{margin-top:0}
@@ -28,7 +52,7 @@ header .tag{background:var(--chip);border:1px solid var(--grid);padding:4px 8px;
 .row.cols-2{grid-template-columns:1fr 1fr}
 .row.cols-3{grid-template-columns:1fr 1fr 1fr}
 .row.cols-4{grid-template-columns:1fr 1fr 1fr 1fr}
-.controls{display:flex;gap:8px;flex-wrap:wrap}
+.controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 button,.btn{cursor:pointer;background:#1b2330;color:var(--text);border:1px solid var(--grid);padding:8px 10px;border-radius:10px;transition:opacity 0.2s ease}
 /* Выровнять высоту для управляемых кнопок (.btn) и label.btn */
 .btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px}
@@ -41,7 +65,10 @@ input,select,textarea{background:#0e141b;border:1px solid var(--grid);color:var(
 input[type=file]{width:100%;max-width:100%}
 label{display:block;margin-bottom:6px;color:var(--muted)}
 .muted{color:var(--muted)}
-.pill{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--grid);border-radius:999px;padding:4px 8px;color:var(--muted)}
+.pill{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--grid);border-radius:999px;padding:4px 8px;color:var(--muted);height:32px}
+
+/* Специальная настройка высоты для инпута "Последние" */
+.pill input#recentLimit{padding:4px 10px;margin-left:6px;width:64px}
 
 /* Стили для радиокнопок в pill контейнерах */
 .pill input[type="radio"]{
@@ -133,6 +160,7 @@ canvas{width:100%;height:260px;display:block;background:transparent;border-radiu
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .help{font-size:12px;color:var(--muted)}
 .right{margin-left:auto}
+.spacer{flex:1}
 .grid-sm{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
 .grid-sm>*{min-width:0}
 .warnbox{background:#1f1a0c;border:1px solid #3d3414;padding:10px;border-radius:10px;color:#e7d8a2}
@@ -148,8 +176,9 @@ canvas{width:100%;height:260px;display:block;background:transparent;border-radiu
   max-width:100%;
   display:block;
 }
-.btn-small{padding:6px 8px;font-size:12px}
+.btn-small{padding:2px 6px;font-size:12px}
 .icon-btn{padding:4px 8px;font-size:14px;line-height:1;border-radius:8px}
+.search-ops{width:180px}
 .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 
 /* Выровнять высоты и карточки */
@@ -400,7 +429,6 @@ canvas{width:100%;height:260px;display:block;background:transparent;border-radiu
   border:1px solid var(--grid);
   border-radius:var(--br);
   padding:20px;
-  margin-top:12px;
 }
 
 .filter-header{
@@ -627,5 +655,28 @@ canvas{width:100%;height:260px;display:block;background:transparent;border-radiu
     flex-direction:column;
     gap:8px;
   }
+}
+
+/* Кнопка настроек */
+.settings-toggle{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:32px;
+  height:32px;
+  border:1px solid var(--grid);
+  border-radius:8px;
+  background:var(--chip);
+  cursor:pointer;
+  transition:all 0.2s ease;
+}
+
+.settings-toggle:hover{
+  background:var(--card);
+  border-color:var(--primary);
+}
+
+.settings-icon{
+  font-size:14px;
 }
 

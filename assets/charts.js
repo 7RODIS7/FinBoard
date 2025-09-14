@@ -1,4 +1,4 @@
-function drawBarChart(c, labels, series, seriesNames){
+function drawBarChart(c, labels, series, seriesNames, opts){
   const dpr=window.devicePixelRatio||1
   const W=c.clientWidth*dpr, H=c.clientHeight*dpr; c.width=W; c.height=H
   const ctx=c.getContext('2d'); ctx.clearRect(0,0,W,H)
@@ -20,7 +20,9 @@ function drawBarChart(c, labels, series, seriesNames){
     const v = (max*i/steps)
     ctx.fillText(formatShort(v), 6*dpr, y-2*dpr)
   }
-  const colors=['#7bd88f','#ff6b6b']
+  const colors = (opts && Array.isArray(opts.seriesColors) && opts.seriesColors.length)
+    ? opts.seriesColors
+    : ['#7bd88f','#ff6b6b','#4ea1ff','#ffa14f','#c59cff']
   const bars=[]
   for(let g=0; g<groups; g++){
     for(let s=0;s<sCount;s++){
@@ -28,9 +30,19 @@ function drawBarChart(c, labels, series, seriesNames){
       const h = gh * (val/max)
       const x = leftPad + g*barGroupW + gap + s*barW
       const y = topPad + gh - h
-      ctx.fillStyle=colors[s%colors.length]
-      roundRect(ctx, x, y, barW, h, 4*dpr)
-      ctx.fill()
+      const isForecast = opts && Number.isInteger(opts.forecastFrom) && g >= opts.forecastFrom
+      if(isForecast){
+        ctx.save()
+        ctx.globalAlpha=0.45
+        ctx.fillStyle=colors[s%colors.length]
+        roundRect(ctx, x, y, barW, h, 4*dpr)
+        ctx.fill()
+        ctx.restore()
+      } else {
+        ctx.fillStyle=colors[s%colors.length]
+        roundRect(ctx, x, y, barW, h, 4*dpr)
+        ctx.fill()
+      }
       bars.push({x,y,w:barW,h, label:labels[g], value:val, series:s})
     }
   }
@@ -42,20 +54,27 @@ function drawBarChart(c, labels, series, seriesNames){
   }
   // Сохраняем геометрию и метки для надёжного определения группы по X
   try{ c._barMeta = { labels:[...labels], leftPad, rightPad, barGroupW, groups } }catch(_){ }
-  attachBarTooltip(c, bars, dpr)
+  attachBarTooltip(c, bars, dpr, Array.isArray(seriesNames)?seriesNames:null)
 }
 
-function drawLineChart(c, labels, values){
+function drawLineChart(c, labels, values, opts){
   const dpr=window.devicePixelRatio||1
   const W=c.clientWidth*dpr, H=c.clientHeight*dpr; c.width=W; c.height=H
   const ctx=c.getContext('2d'); ctx.clearRect(0,0,W,H)
   const topPad=48*dpr, bottomPad=28*dpr, leftPad=48*dpr, rightPad=16*dpr
   const gw= W-leftPad-rightPad, gh=H-topPad-bottomPad
   const n=labels.length
+  if(!Array.isArray(labels) || !labels.length || !Array.isArray(values) || !values.length){
+    ctx.fillStyle='#9fb1c7'; ctx.textAlign='center'; ctx.font=`${12*dpr}px sans-serif`
+    ctx.fillText('Нет данных', W/2, H/2)
+    return
+  }
   
   // Исправляем расчет диапазона для корректного отображения отрицательных значений
-  const minVal = Math.min(...values)
-  const maxVal = Math.max(...values)
+  const extra = (opts && Array.isArray(opts.baselineValues)) ? opts.baselineValues : null
+  const allVals = extra ? [...values, ...extra] : values
+  const minVal = Math.min(...allVals)
+  const maxVal = Math.max(...allVals)
   const range = maxVal - minVal
   const padding = range * 0.1 // 10% отступ сверху и снизу
   const yMin = minVal - padding
@@ -90,7 +109,35 @@ function drawLineChart(c, labels, values){
     points.push({x, y, label: labels[i], value: values[i]})
     if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y)
   }
-  ctx.stroke()
+  if(opts && Number.isInteger(opts.forecastFrom)){
+    const cut = Math.max(0, Math.min(n-1, opts.forecastFrom-1))
+    // Нарисуем фактическую линию до cut
+    ctx.save(); ctx.strokeStyle='#4ea1ff'; ctx.setLineDash([]); ctx.beginPath()
+    for(let i=0;i<=cut;i++){ const p=points[i]; if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y) }
+    ctx.stroke(); ctx.restore()
+    // Прогноз — пунктиром
+    ctx.save(); ctx.strokeStyle='#4ea1ff'; ctx.globalAlpha=0.7; ctx.setLineDash([6*dpr,6*dpr]); ctx.beginPath()
+    for(let i=cut;i<n;i++){ const p=points[i]; if(i===cut) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y) }
+    ctx.stroke(); ctx.restore()
+  }else{
+    ctx.stroke()
+  }
+  // Бейзлайн (например, среднее 12м)
+  if(extra && extra.length===n){
+    ctx.save()
+    ctx.strokeStyle='#c7d3e3'
+    ctx.globalAlpha=0.9
+    ctx.setLineDash([4*dpr,4*dpr])
+    ctx.lineWidth=1.5*dpr
+    ctx.beginPath()
+    for(let i=0;i<n;i++){
+      const x = leftPad + (gw*(i/(Math.max(1,n-1))))
+      const y = topPad + gh - ((extra[i] - yMin) / yRange) * gh
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y)
+    }
+    ctx.stroke()
+    ctx.restore()
+  }
   ctx.fillStyle='#4ea1ff'
   for(const p of points){
     ctx.beginPath(); ctx.arc(p.x, p.y, 4*dpr, 0, Math.PI*2); ctx.fill()
@@ -153,7 +200,7 @@ function drawDonutChart(c, labels, values){
       const s = slices.find(s=> a>=s.start && a<=s.end)
       if(s){
         const currency = window.STATE?.vault?.currency || 'BGN'
-        const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(s.value)
+        const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(s.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(s.value))
         const pct = ((s.value/total)*100).toFixed(1)
         tip.style.display='block'
         tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${s.label}</div><div>${formattedValue} · ${pct}%</div>`
@@ -180,7 +227,7 @@ function drawDonutChart(c, labels, values){
       if(idx>=0 && idx<entries.length){
         const currency = window.STATE?.vault?.currency || 'BGN'
         const eEntry = entries[idx]
-        const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(eEntry.value)
+        const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(eEntry.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(eEntry.value))
         tip.style.display='block'
         tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${eEntry.label}</div><div>${formattedValue} · ${eEntry.pct.toFixed(1)}%</div>`
         tip.style.left=(e.clientX+12)+'px'
@@ -215,7 +262,7 @@ function formatShort(v){
   return String(Math.round(v))
 }
 
-function attachBarTooltip(canvas, bars, dpr){
+function attachBarTooltip(canvas, bars, dpr, seriesNames){
   let tip=document.getElementById('chartTip')
   if(!tip){
     tip=document.createElement('div');
@@ -246,9 +293,9 @@ function attachBarTooltip(canvas, bars, dpr){
     const b=findBar(mx,my)
     if(b){
       tip.style.display='block'
-      const seriesName = b.series === 0 ? 'Доходы' : 'Расходы'
+      const seriesName = Array.isArray(seriesNames) && seriesNames[b.series] ? seriesNames[b.series] : (b.series === 0 ? 'Доходы' : 'Расходы')
       const currency = window.STATE?.vault?.currency || 'BGN'
-      const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(b.value)
+      const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(b.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(b.value))
       tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${b.label}</div><div style="color:${b.series === 0 ? '#7bd88f' : '#ff6b6b'}">${seriesName}: ${formattedValue}</div>`
       tip.style.left=(e.clientX+12)+'px'
       tip.style.top=(e.clientY+12)+'px'
@@ -289,33 +336,72 @@ function attachBarTooltip(canvas, bars, dpr){
       }
     }
     if(b && (typeof PERIOD_FILTER !== 'undefined')){
-      PERIOD_FILTER.mode='month'
-      PERIOD_FILTER.singleMonth=b.label
-      // Sync UI controls
-      try{
-        const monthRadio = document.querySelector('input[name="filterMode"][value="month"]')
-        if(monthRadio){
-          monthRadio.checked = true
-          if(typeof monthRadio.onchange === 'function') monthRadio.onchange()
-        }
-        const sel = document.getElementById('globalSingleMonth')
-        if(sel){
-          sel.value = b.label
-          if(typeof sel.onchange === 'function') sel.onchange()
-        }
-      }catch(_){ }
-      // Close modal if open
-      if(typeof window.closeExpanded === 'function'){
-        try{ window.closeExpanded() }catch(_){ }
+      const aggMode = (window.UI && UI.aggMode) ? UI.aggMode : 'month'
+      const isMonth = /^\d{4}-\d{2}$/.test(b.label)
+      const isWeek = /^\d{4}-W\d{2}$/.test(b.label)
+      const isDay  = /^\d{4}-\d{2}-\d{2}$/.test(b.label)
+
+      if(aggMode==='day' && isDay){
+        // Выбор конкретного дня
+        try{
+          const [y,m,d] = b.label.split('-').map(Number)
+          PERIOD_FILTER.mode='day'
+          PERIOD_FILTER.dayYear=String(y)
+          PERIOD_FILTER.dayMonth=m
+          PERIOD_FILTER.dayDay=d
+          const dayRadio = document.querySelector('input[name="filterMode"][value="day"]')
+          if(dayRadio){ dayRadio.checked = true; if(typeof dayRadio.onchange==='function') dayRadio.onchange() }
+          const dy=document.getElementById('dayYear'); if(dy){ dy.value=String(y); if(typeof dy.onchange==='function') dy.onchange() }
+          const dm=document.getElementById('dayMonth'); if(dm){ dm.value=String(m); if(typeof dm.onchange==='function') dm.onchange() }
+          const dd=document.getElementById('dayDay'); if(dd){ dd.value=String(d); if(typeof dd.onchange==='function') dd.onchange() }
+        }catch(_){ }
+        // Агрегация остаётся День, синхронизируем радиокнопку
+        try{ const ra=document.querySelector('input[name="aggMode"][value="day"]'); if(ra){ ra.checked=true; if(typeof ra.onchange==='function') ra.onchange() } }catch(_){ }
+        if(typeof window.updateAllCharts==='function') window.updateAllCharts()
+        return
       }
-      // Update visuals
-      try{
-        if(typeof window.updateAllCharts === 'function'){
-          window.updateAllCharts()
-        }else if(typeof window.render === 'function'){
-          window.render()
+
+      if(aggMode==='week' && isWeek){
+        // Выбор недели и углубление до дней этой недели
+        try{
+          const [yPart,wPart] = b.label.split('-W')
+          PERIOD_FILTER.mode='week'
+          PERIOD_FILTER.weekYear=String(yPart)
+          PERIOD_FILTER.weekNumber=parseInt(wPart)||1
+          const weekRadio = document.querySelector('input[name="filterMode"][value="week"]')
+          if(weekRadio){ weekRadio.checked = true; if(typeof weekRadio.onchange==='function') weekRadio.onchange() }
+          const wy=document.getElementById('weekYear'); if(wy){ wy.value=String(yPart); if(typeof wy.onchange==='function') wy.onchange() }
+          const wn=document.getElementById('weekNumber'); if(wn){ wn.value=String(parseInt(wPart)||1); if(typeof wn.onchange==='function') wn.onchange() }
+          window.UI = window.UI || {}
+          UI.aggMode = 'day'
+          // Переключим радиокнопку агрегации на День
+          try{ const ra=document.querySelector('input[name="aggMode"][value="day"]'); if(ra){ ra.checked=true; if(typeof ra.onchange==='function') ra.onchange() } }catch(_){ }
+        }catch(_){ }
+        if(typeof window.updateAllCharts==='function') window.updateAllCharts()
+        return
+      }
+
+      // По умолчанию — месяц
+      if(isMonth){
+        if(PERIOD_FILTER.mode==='month' && PERIOD_FILTER.singleMonth===b.label){
+          // Уже выбран этот месяц — меняем агрегацию на Неделя
+          window.UI = window.UI || {}
+          UI.aggMode = 'week'
+          try{ const ra=document.querySelector('input[name="aggMode"][value="week"]'); if(ra){ ra.checked=true; if(typeof ra.onchange==='function') ra.onchange() } }catch(_){ }
+          if(typeof window.updateAllCharts === 'function') window.updateAllCharts()
+          return
         }
-      }catch(_){ }
+        PERIOD_FILTER.mode='month'
+        PERIOD_FILTER.singleMonth=b.label
+        try{
+          const monthRadio = document.querySelector('input[name="filterMode"][value="month"]')
+          if(monthRadio){ monthRadio.checked = true; if(typeof monthRadio.onchange === 'function') monthRadio.onchange() }
+          const sel = document.getElementById('globalSingleMonth')
+          if(sel){ sel.value = b.label; if(typeof sel.onchange === 'function') sel.onchange() }
+        }catch(_){ }
+        if(typeof window.closeExpanded === 'function'){ try{ window.closeExpanded() }catch(_){ } }
+        try{ if(typeof window.updateAllCharts === 'function') window.updateAllCharts(); else if(typeof window.render === 'function') window.render() }catch(_){ }
+      }
     }
   }
 }
@@ -340,7 +426,7 @@ function attachLineTooltip(canvas, points, dpr){
     if(p){
       tip.style.display='block'
       const currency = window.STATE?.vault?.currency || 'BGN'
-      const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(p.value)
+      const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(p.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(p.value))
       const valueColor = p.value >= 0 ? '#7bd88f' : '#ff6b6b'
       tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${p.label}</div><div style="color:${valueColor}">Чистый итог: ${formattedValue}</div>`
       tip.style.left=(e.clientX+12)+'px'
