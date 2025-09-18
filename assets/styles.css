@@ -28,6 +28,11 @@ header .icon-btn{
 }
 header .icon-btn:hover{ background:var(--card); border-color:var(--primary) }
 header .icon-btn svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
+/* Специфичные цвета для кнопки демо (play/stop) */
+header #btnDemo.demo-play{ background:rgba(13,110,253,0.15); border-color:#0d6efd; color:#9ec5fe }
+header #btnDemo.demo-play:hover{ background:rgba(13,110,253,0.25); border-color:#0b5ed7; color:#cfe2ff }
+header #btnDemo.demo-stop{ background:rgba(220,53,69,0.15); border-color:#dc3545; color:#ffa6ae }
+header #btnDemo.demo-stop:hover{ background:rgba(220,53,69,0.25); border-color:#bb2d3b; color:#ffc2c7 }
 /* Унифицируем иконки-кнопки вне header (для модалок и таблиц) */
 .icon-btn svg{ width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round }
 .side{border-right:1px solid var(--grid);padding:14px;overflow:auto}
@@ -178,6 +183,7 @@ canvas{width:100%;height:260px;display:block;background:transparent;border-radiu
 }
 .btn-small{padding:2px 6px;font-size:12px}
 .icon-btn{padding:4px 8px;font-size:14px;line-height:1;border-radius:8px}
+.icon-btn.active{background:var(--chip)}
 .search-ops{width:180px}
 .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 

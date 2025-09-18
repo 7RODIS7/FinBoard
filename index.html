@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <!-- Смягчённый CSP для работы через file:// -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' blob: data: file:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; frame-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' blob: data: file:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob: file:; frame-src 'none'">
   <title>FinBoard</title>
   <link rel="stylesheet" href="assets/styles.css" />
   <script src="assets/prefs.js"></script>
@@ -31,9 +31,7 @@
         <option value="USD">USD</option>
       </select>
     </div>
-    <button id="btnClearStorage" class="icon-btn" title="Очистить данные">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-    </button>
+    
     <div id="themeToggle" class="theme-toggle" title="Переключить тему">
       <span class="theme-icon">
         <span class="icon sun">☀️</span>
@@ -43,6 +41,13 @@
     <div id="helpToggle" class="help-toggle" title="Показать справку">
       <span class="help-icon">❓</span>
     </div>
+    <div class="pill" id="demoWrap" style="margin-left:8px;display:flex;align-items:center;gap:6px">
+      <button id="btnDemo" class="icon-btn" title="Запустить демо">▶</button>
+      <span id="demoLabel" class="muted" style="user-select:none">Демо</span>
+    </div>
+    <button id="btnClearStorage" class="icon-btn" title="Очистить данные" style="margin-left:8px">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+    </button>
     <div id="settingsToggle" class="settings-toggle" title="Настройки"><span class="settings-icon">⚙️</span></div>
     <button id="btnLock" class="btn" style="display:none">Заблокировать</button>
   </header>
@@ -50,6 +55,9 @@
   <aside class="side" id="side"></aside>
   <main class="content" id="main"></main>
 </div>
+
+<!-- demo data moved to external file for cleanliness -->
+<script src="demo/demo-data.js"></script>
 
 <script>
 // ===== УТИЛИТЫ =====
@@ -59,7 +67,7 @@ const fmt = new Intl.NumberFormat('ru-RU',{style:'currency',currency:'BGN',maxim
 const monthFmt = new Intl.DateTimeFormat('ru-RU',{year:'numeric',month:'2-digit'})
 const dateFmt = new Intl.DateTimeFormat('ru-RU')
 // Currency conversion helpers (display currency from PREFS, BGN as hub)
-function prefsFx(){ try{ return (window.PREFS && PREFS.getFx && PREFS.getFx()) || { BGN_EUR:1.949, BGN_USD:1.773 } }catch(_){ return { BGN_EUR:1.949, BGN_USD:1.773 } } }
+function prefsFx(){ try{ return (window.PREFS && PREFS.getFx && PREFS.getFx()) }catch(_){ } try{ return (window.PREFS && PREFS.getFxDefaults && PREFS.getFxDefaults()) }catch(_){ } return { BGN_EUR: 1.95583, BGN_USD: 1.65230 } }
 function getDisplayCurrency(){ try{ return (window.PREFS && PREFS.get && (PREFS.get().preferredCurrency||null)) || STATE?.vault?.currency || 'BGN' }catch(_){ return (STATE?.vault?.currency)||'BGN' } }
 function convertValue(amount){
   const from = (STATE?.vault?.currency)||'BGN'
@@ -69,12 +77,12 @@ function convertValue(amount){
   const fx = prefsFx()
   // to BGN
   let inBGN = amount
-  if(from==='EUR') inBGN = amount * (fx.BGN_EUR||1.949)
-  else if(from==='USD') inBGN = amount * (fx.BGN_USD||1.773)
+  if(from==='EUR') inBGN = amount * fx.BGN_EUR
+  else if(from==='USD') inBGN = amount * fx.BGN_USD
   // from BGN to target
   if(to==='BGN') return inBGN
-  if(to==='EUR') return inBGN / (fx.BGN_EUR||1.949)
-  if(to==='USD') return inBGN / (fx.BGN_USD||1.773)
+  if(to==='EUR') return inBGN / fx.BGN_EUR
+  if(to==='USD') return inBGN / fx.BGN_USD
   return amount
 }
 function formatAmountDisplay(amount){
@@ -293,6 +301,7 @@ async function decryptJSON(bundle, pass){
 
 // ===== ХРАНИЛИЩЕ =====
 const LS_KEY = 'ofb_vault'
+const DEMO_BACKUP_KEY = 'ofb_demo_backup'
 let STATE = { unlocked:true, pass:null, vault: ensureVault(loadVaultPlain()) }
 
 // ===== ФИЛЬТР ПЕРИОДА =====
@@ -645,37 +654,33 @@ function render(){
 
 function sideUI(){
   return `
-  <div class="card">
-    <h3>Выписки (XML/JSON)</h3>
-    <div class="hr"></div>
-    
-    <!-- Зона выбора файла -->
-    <div id="stmtDropzone" class="dropzone">
-      <label id="btnChooseStmt" class="btn" for="stmtFile">📁 Выбрать файл</label>
-      <input id="stmtFile" type="file" accept=".xml,text/xml,application/xml,application/json,.json" class="hidden" onchange="onStmtChosen(event)" />
-      <div class="help" style="margin-top:8px">XML (банк) или JSON (пользовательский экспорт). Можно перетащить сюда.</div>
-    </div>
-    
-    <!-- Информация о выбранном файле -->
-    <div id="stmtFileInfo" style="display:none;margin-top:12px;padding:12px;background:var(--card);border:1px solid var(--accent);border-radius:8px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-        <span style="color:var(--accent);font-size:16px;">✓</span>
-        <div id="stmtFileName" style="font-weight:600;color:var(--text);"></div>
-      </div>
-      <div id="stmtInfo" style="color:var(--accent);font-weight:500;margin-bottom:4px;"></div>
-      <div id="stmtStatus" style="color:var(--muted);font-size:12px;"></div>
-    </div>
-    
-    <!-- Кнопки управления -->
-    <div class="hr"></div>
-    <div class="controls">
-      <button id="btnClearStmt" class="btn" disabled>Очистить</button>
-      <button id="btnDoImportStmt" class="primary" disabled>Импортировать</button>
-      <span class="right"></span>
-      <button id="btnExportVault" class="btn">Экспорт (JSON)</button>
-    </div>
+  
+  <!-- Зона выбора файла -->
+  <div id="stmtDropzone" class="dropzone">
+    <label id="btnChooseStmt" class="btn" for="stmtFile">📁 Выбрать файл</label>
+    <input id="stmtFile" type="file" accept=".xml,text/xml,application/xml,application/json,.json" class="hidden" onchange="onStmtChosen(event)" />
+    <div class="help" style="margin-top:8px">XML (банк) или JSON (пользовательский экспорт). Можно перетащить сюда.</div>
   </div>
-
+  
+  <!-- Информация о выбранном файле -->
+  <div id="stmtFileInfo" style="display:none;margin-top:12px;padding:12px;background:var(--card);border:1px solid var(--accent);border-radius:8px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <span style="color:var(--accent);font-size:16px;">✓</span>
+      <div id="stmtFileName" style="font-weight:600;color:var(--text);"></div>
+    </div>
+    <div id="stmtInfo" style="color:var(--accent);font-weight:500;margin-bottom:4px;"></div>
+    <div id="stmtStatus" style="color:var(--muted);font-size:12px;"></div>
+  </div>
+  
+  <!-- Кнопки управления -->
+  <div class="hr"></div>
+  <div class="controls">
+    <button id="btnClearStmt" class="btn" disabled>Очистить</button>
+    <button id="btnDoImportStmt" class="primary" disabled>Импортировать</button>
+    <span class="right"></span>
+    <button id="btnExportVault" class="btn">Экспорт (JSON)</button>
+  </div>
+  
   `
 }
 
@@ -845,7 +850,11 @@ function mainUI(){
             </label>
             <label class="filter-tab">
               <input type="radio" name="forecastMode" value="avg12" ${ (window.UI&&UI.forecastMode==='avg12')?'checked':'' }>
-              <span>Усреднённый доход</span>
+              <span>Ср. доход</span>
+            </label>
+            <label class="filter-tab">
+              <input type="radio" name="forecastMode" value="avg12both" ${ (window.UI&&UI.forecastMode==='avg12both')?'checked':'' }>
+              <span>Ср. доход / расход</span>
             </label>
           </div>
         </div>
@@ -964,7 +973,7 @@ function bindMain(){
     }
     // Бейзлайн по среднему за 12 мес, приведенный к текущей агрегации
     let baseline = null
-    if(forecastMode==='avg12'){
+    if(forecastMode==='avg12' || forecastMode==='avg12both'){
       const now = new Date()
       const start12 = new Date(now.getFullYear(), now.getMonth()-11, 1)
       const end12 = new Date(now.getFullYear(), now.getMonth()+1, 0)
@@ -997,8 +1006,13 @@ function bindMain(){
       if(TX_FILTER==='income') baseline = labels.map(()=>incScaled)
       else if(TX_FILTER==='expense') baseline = labels.map(()=>-expScaled)
       else baseline = labels.map(()=>netScaled)
-      // По требованию: заменить зелёные столбики (доходы) на усреднённые
+      // По требованию: заменить столбцы на усреднённые
       incomes = labels.map(()=>incScaled)
+      if(forecastMode==='avg12both'){
+        expenses = labels.map(()=>expScaled)
+        // Только для режима «средний доход/расход» считаем чистый итог как прогнозный (пунктир)
+        forecastFromIndex = 0
+      }
     }
     if(TX_FILTER==='income'){ expenses = expenses.map(()=>0) }
     if(TX_FILTER==='expense'){ incomes = incomes.map(()=>0) }
@@ -1052,12 +1066,13 @@ function bindMain(){
   const baseline = agg.baseline
 
   const forecastOpts = agg.forecastFromIndex!=null?{forecastFrom: agg.forecastFromIndex}:{}
+  const translucentSeries = ((window.UI && (UI.forecastMode==='avg12' || UI.forecastMode==='avg12both'))) ? { translucentSeriesIndices: (UI.forecastMode==='avg12both'?[0,1]:[0]) } : {}
   // Convert to display currency before drawing
   const barIncomesD = (barIncomes||[]).map(v=>convertValue(v))
   const barExpensesD = (barExpenses||[]).map(v=>convertValue(v))
   const lineNetsD = (lineNets||[]).map(v=>convertValue(v))
   const baselineD = Array.isArray(baseline) ? baseline.map(v=>convertValue(v)) : null
-  drawBarChart($('#bar'), barLabels, [barIncomesD, barExpensesD], ['Доходы','Расходы'], forecastOpts)
+  drawBarChart($('#bar'), barLabels, [barIncomesD, barExpensesD], ['Доходы','Расходы'], Object.assign({}, forecastOpts, translucentSeries))
   drawLineChart($('#line'), lineLabels, lineNetsD, Object.assign({}, forecastOpts, baselineD?{baselineValues: baselineD}:{}))
 
   function drawPieChart(){
@@ -1070,7 +1085,7 @@ function bindMain(){
       totalByCat[cat] = (totalByCat[cat]||0) + Math.abs(t.amount||0)
     })
     const labels2=Object.keys(totalByCat)
-    const vals=labels2.map(k=>totalByCat[k])
+    const vals=labels2.map(k=> convertValue(totalByCat[k]))
     drawDonutChart($('#pie'), labels2, vals)
   }
   
@@ -1126,12 +1141,13 @@ function bindMain(){
     let barExpenses = agg.expenses
     const lineNets = agg.lineValues
     const forecastOpts = agg.forecastFromIndex!=null?{forecastFrom: agg.forecastFromIndex}:{}
+    const translucentSeries = ((window.UI && (UI.forecastMode==='avg12' || UI.forecastMode==='avg12both'))) ? { translucentSeriesIndices: (UI.forecastMode==='avg12both'?[0,1]:[0]) } : {}
     // Convert to display currency before drawing
     const barIncomesD = (barIncomes||[]).map(v=>convertValue(v))
     const barExpensesD = (barExpenses||[]).map(v=>convertValue(v))
     const lineNetsD = (lineNets||[]).map(v=>convertValue(v))
     const baselineD = Array.isArray(agg.baseline) ? agg.baseline.map(v=>convertValue(v)) : null
-    drawBarChart($('#bar'), barLabels, [barIncomesD, barExpensesD], ['Доходы','Расходы'], forecastOpts)
+    drawBarChart($('#bar'), barLabels, [barIncomesD, barExpensesD], ['Доходы','Расходы'], Object.assign({}, forecastOpts, translucentSeries))
     drawLineChart($('#line'), barLabels, lineNetsD, Object.assign({}, forecastOpts, baselineD?{baselineValues: baselineD}:{}))
     drawPieChart() // Пирог игнорирует фильтр категории
     
@@ -1410,6 +1426,87 @@ function bindMain(){
   const btn=$('#btnOpenAdd'); if(btn) btn.onclick=openAddModal
   const btnCats=$('#btnOpenCats'); if(btnCats) btnCats.onclick=openCategoriesModal
   const btnStmt=$('#btnOpenStmt'); if(btnStmt) btnStmt.onclick=openStatementsModal
+  const btnDemo=$('#btnDemo'); if(btnDemo){
+    let DEMO_ACTIVE = !!(window.UI && UI.demoActive)
+    const setDemoUi=(active)=>{
+      DEMO_ACTIVE = !!active
+      window.UI = window.UI || {}
+      UI.demoActive = DEMO_ACTIVE
+      btnDemo.textContent = active ? '⏹' : '▶'
+      btnDemo.title = active ? 'Остановить демо' : 'Запустить демо'
+      btnDemo.classList.toggle('active', active)
+      btnDemo.classList.remove('demo-play','demo-stop')
+      btnDemo.classList.add(active ? 'demo-stop' : 'demo-play')
+    }
+    setDemoUi(DEMO_ACTIVE)
+    btnDemo.onclick = async ()=>{
+      try{
+        if(!DEMO_ACTIVE){
+          if(!confirm('Переключиться на демо-данные? Будут импортированы настройки выписок и категорий из папки demo. Текущие операции и категории будут заменены демо-набором.')) return
+
+          async function loadJsonWithFallback(url, embeddedId){
+            try{
+              const res = await fetch(url, {cache:'no-store'})
+              if(!res.ok) throw new Error('HTTP '+res.status)
+              return await res.json()
+            }catch(_){
+              try{
+                if(embeddedId==='demoVaultEmbedded' && window.DEMO_VAULT){ return window.DEMO_VAULT }
+                if(embeddedId==='demoCatsEmbedded' && window.DEMO_CATS){ return window.DEMO_CATS }
+              }catch(_2){ }
+              return null
+            }
+          }
+
+          // Сохраняем бэкап текущих данных для возврата после демо (один раз)
+          try{
+            if(localStorage.getItem(DEMO_BACKUP_KEY)===null){
+              const prev = localStorage.getItem(LS_KEY)
+              localStorage.setItem(DEMO_BACKUP_KEY, prev!==null ? prev : '')
+            }
+          }catch(_){ }
+
+          const [demoVaultRaw, demoCats] = await Promise.all([
+            loadJsonWithFallback('demo/ofb-vault-demo.json','demoVaultEmbedded'),
+            loadJsonWithFallback('demo/ofb-categories-demo.json','demoCatsEmbedded')
+          ])
+          const demoVault = ensureVault(demoVaultRaw||emptyVault())
+          if(!demoVaultRaw){ toast('Загружаю встроенные демо-данные (file:// режим)','warn') }
+          if(!demoCats){ toast('Категории (demo) не найдены, будут использованы из хранилища','warn') }
+          STATE = {unlocked:true, pass:null, vault: emptyVault()}
+          STATE.vault.currency = demoVault.currency||'BGN'
+          STATE.vault.transactions = Array.isArray(demoVault.transactions)
+            ? demoVault.transactions.map(t=>{
+                const nt = normalizeImportedTx(t)
+                if(nt && nt.desc){ nt.desc = String(nt.desc).replace(/MICROSOFT BULGARIA EOOD|GOOGLE BULGARIA EOOD/gi,'GOOGLE') }
+                return nt
+              })
+            : []
+          STATE.vault.adjustments = demoVault.adjustments||{}
+          STATE.vault.categories = Array.isArray(demoCats?.categories)? demoCats.categories : (demoVault.categories||[])
+          STATE.vault.catRules = Array.isArray(demoCats?.catRules)? demoCats.catRules : (demoVault.catRules||[])
+          applyCatRulesToAllTransactions()
+          if(STATE.vault.transactions.length){
+            const dates = STATE.vault.transactions.map(t=>t.date).sort()
+            const firstDate = new Date(dates[0])
+            const lastDate = new Date(dates[dates.length-1])
+            PERIOD_FILTER.fromMonth = monthKey(firstDate)
+            PERIOD_FILTER.toMonth = monthKey(lastDate)
+            PERIOD_FILTER.singleMonth = monthKey(lastDate)
+            PERIOD_FILTER.singleYear = String(lastDate.getFullYear())
+          }
+          await saveVault(); window.UI=window.UI||{}; UI.demoActive=true; render(); toast('Загружены демо-данные')
+        } else {
+          if(!confirm('Остановить демо? Все текущие данные будут очищены.')) return
+          try{ localStorage.removeItem(LS_KEY) }catch(_){ }
+          try{ localStorage.removeItem(DEMO_BACKUP_KEY) }catch(_){ }
+          STATE = {unlocked:true, pass:null, vault: emptyVault()}
+          window.UI=window.UI||{}; UI.demoActive=false; render(); toast('Демо остановлено, данные очищены')
+        }
+      }catch(e){ toast('Не удалось выполнить операцию демо','warn') }
+    }
+  }
+  const btnClr2=$('#btnClearStorage2'); if(btnClr2){ btnClr2.onclick = ()=> $('#btnClearStorage')?.click() }
   $$('[data-expand]').forEach(b=>{ b.onclick=()=>{ openExpanded(b.getAttribute('data-expand')) } })
   $$('[data-del-tx]').forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
   
@@ -2037,7 +2134,7 @@ function renderExpanded(key){
         totalByCat[cat]=(totalByCat[cat]||0)+Math.abs(t.amount||0)
       })
       const l=Object.keys(totalByCat)
-      const v=l.map(k=>totalByCat[k])
+      const v=l.map(k=> convertValue(totalByCat[k]))
       drawDonutChart($('#pieBig'), l, v) 
     }
     draw(); 
@@ -2212,7 +2309,7 @@ function download(name, content){
     const a=document.createElement('a')
     a.href=URL.createObjectURL(new Blob([content],{type:'application/json'}))
     a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000)
-    toast('Файл скачан. При необходимости переместите в папку Data')
+    toast('Файл скачан. При необходимости переместите в папку data')
   })()
 }
 

@@ -31,7 +31,8 @@ function drawBarChart(c, labels, series, seriesNames, opts){
       const x = leftPad + g*barGroupW + gap + s*barW
       const y = topPad + gh - h
       const isForecast = opts && Number.isInteger(opts.forecastFrom) && g >= opts.forecastFrom
-      if(isForecast){
+      const forceTranslucent = !!(opts && Array.isArray(opts.translucentSeriesIndices) && opts.translucentSeriesIndices.includes(s))
+      if(isForecast || forceTranslucent){
         ctx.save()
         ctx.globalAlpha=0.45
         ctx.fillStyle=colors[s%colors.length]
@@ -73,8 +74,14 @@ function drawLineChart(c, labels, values, opts){
   // Исправляем расчет диапазона для корректного отображения отрицательных значений
   const extra = (opts && Array.isArray(opts.baselineValues)) ? opts.baselineValues : null
   const allVals = extra ? [...values, ...extra] : values
-  const minVal = Math.min(...allVals)
-  const maxVal = Math.max(...allVals)
+  let minVal = Math.min(...allVals)
+  let maxVal = Math.max(...allVals)
+  if(!Number.isFinite(minVal) || !Number.isFinite(maxVal)){
+    minVal = 0; maxVal = 1
+  }
+  if(minVal === maxVal){
+    minVal -= 1; maxVal += 1
+  }
   const range = maxVal - minVal
   const padding = range * 0.1 // 10% отступ сверху и снизу
   const yMin = minVal - padding
@@ -199,8 +206,8 @@ function drawDonutChart(c, labels, values){
     if(dist>=r*0.55 && dist<=r){
       const s = slices.find(s=> a>=s.start && a<=s.end)
       if(s){
-        const currency = window.STATE?.vault?.currency || 'BGN'
-        const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(s.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(s.value))
+        const currency = (typeof getDisplayCurrency==='function') ? getDisplayCurrency() : ((window.PREFS&&PREFS.get&&PREFS.get().preferredCurrency)||window.STATE?.vault?.currency||'BGN')
+        const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(s.value)
         const pct = ((s.value/total)*100).toFixed(1)
         tip.style.display='block'
         tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${s.label}</div><div>${formattedValue} · ${pct}%</div>`
@@ -225,9 +232,9 @@ function drawDonutChart(c, labels, values){
     if(lx>=legX && lx<=legX+legWidth && ly>=top0 && ly<=top0 + entries.length*rowH){
       const idx = Math.floor((ly - top0)/rowH)
       if(idx>=0 && idx<entries.length){
-        const currency = window.STATE?.vault?.currency || 'BGN'
+        const currency = (typeof getDisplayCurrency==='function') ? getDisplayCurrency() : ((window.PREFS&&PREFS.get&&PREFS.get().preferredCurrency)||window.STATE?.vault?.currency||'BGN')
         const eEntry = entries[idx]
-        const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(eEntry.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(eEntry.value))
+        const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(eEntry.value)
         tip.style.display='block'
         tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${eEntry.label}</div><div>${formattedValue} · ${eEntry.pct.toFixed(1)}%</div>`
         tip.style.left=(e.clientX+12)+'px'
@@ -294,8 +301,8 @@ function attachBarTooltip(canvas, bars, dpr, seriesNames){
     if(b){
       tip.style.display='block'
       const seriesName = Array.isArray(seriesNames) && seriesNames[b.series] ? seriesNames[b.series] : (b.series === 0 ? 'Доходы' : 'Расходы')
-      const currency = window.STATE?.vault?.currency || 'BGN'
-      const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(b.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(b.value))
+      const currency = (typeof getDisplayCurrency==='function') ? getDisplayCurrency() : ((window.PREFS&&PREFS.get&&PREFS.get().preferredCurrency)||window.STATE?.vault?.currency||'BGN')
+      const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(b.value)
       tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${b.label}</div><div style="color:${b.series === 0 ? '#7bd88f' : '#ff6b6b'}">${seriesName}: ${formattedValue}</div>`
       tip.style.left=(e.clientX+12)+'px'
       tip.style.top=(e.clientY+12)+'px'
@@ -425,8 +432,8 @@ function attachLineTooltip(canvas, points, dpr){
     const p=findPoint(mx,my)
     if(p){
       tip.style.display='block'
-      const currency = window.STATE?.vault?.currency || 'BGN'
-      const formattedValue = (window.formatAmountDisplay ? window.formatAmountDisplay(p.value) : new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(p.value))
+      const currency = (typeof getDisplayCurrency==='function') ? getDisplayCurrency() : ((window.PREFS&&PREFS.get&&PREFS.get().preferredCurrency)||window.STATE?.vault?.currency||'BGN')
+      const formattedValue = new Intl.NumberFormat('ru-RU', {style:'currency', currency, maximumFractionDigits:2}).format(p.value)
       const valueColor = p.value >= 0 ? '#7bd88f' : '#ff6b6b'
       tip.innerHTML = `<div style="font-weight:600;margin-bottom:2px;">${p.label}</div><div style="color:${valueColor}">Чистый итог: ${formattedValue}</div>`
       tip.style.left=(e.clientX+12)+'px'

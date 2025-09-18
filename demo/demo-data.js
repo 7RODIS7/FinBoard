@@ -1,0 +1,116 @@
+(function(){
+  try{
+    window.DEMO_VAULT = {
+      "currency": "BGN",
+      "transactions": [
+        {"id":"demo-202401-01","date":"2024-01-12","desc":"Перевод","amount":220,"category":"Переводы","source":"demo"},
+        {"id":"demo-202401-02","date":"2024-01-31","desc":"GOOGLE | ЗАРПЛАТА 01.2024","amount":2420,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202401-03","date":"2024-01-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1450,"category":"Аренда","source":"demo"},
+        {"id":"demo-202401-04","date":"2024-01-10","desc":"LIDL BALGARIYA EOOD","amount":-280,"category":"Продукты","source":"demo"},
+        {"id":"demo-202401-05","date":"2024-01-15","desc":"MA BAKER EOOD","amount":-85,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202401-06","date":"2024-01-20","desc":"SIS INVEST AUTO","amount":-75,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202401-07","date":"2024-01-23","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202401-08","date":"2024-01-27","desc":"GORSKI KANTON","amount":-60,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202402-01","date":"2024-02-12","desc":"Перевод","amount":180,"category":"Переводы","source":"demo"},
+        {"id":"demo-202402-02","date":"2024-02-29","desc":"GOOGLE | ЗАРПЛАТА 02.2024","amount":2480,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202402-03","date":"2024-02-05","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1460,"category":"Аренда","source":"demo"},
+        {"id":"demo-202402-04","date":"2024-02-09","desc":"FANTASTICO GROUP LTD","amount":-260,"category":"Продукты","source":"demo"},
+        {"id":"demo-202402-05","date":"2024-02-16","desc":"SOHO CAFE","amount":-80,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202402-06","date":"2024-02-21","desc":"SIS INVEST AUTO","amount":-70,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202402-07","date":"2024-02-23","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202402-08","date":"2024-02-26","desc":"KOKOLANDIA OOD","amount":-60,"category":"Развлечения","source":"demo"},
+        {"id":"demo-202403-01","date":"2024-03-11","desc":"Перевод","amount":260,"category":"Переводы","source":"demo"},
+        {"id":"demo-202403-02","date":"2024-03-29","desc":"GOOGLE | ЗАРПЛАТА 03.2024","amount":2550,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202403-03","date":"2024-03-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1470,"category":"Аренда","source":"demo"},
+        {"id":"demo-202403-04","date":"2024-03-08","desc":"LIDL BALGARIYA EOOD","amount":-290,"category":"Продукты","source":"demo"},
+        {"id":"demo-202403-05","date":"2024-03-15","desc":"MA BAKER EOOD","amount":-90,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202403-06","date":"2024-03-20","desc":"SIS INVEST AUTO","amount":-85,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202403-07","date":"2024-03-23","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202403-08","date":"2024-03-27","desc":"KAMELOT","amount":-65,"category":"Развлечения","source":"demo"},
+        {"id":"demo-202404-01","date":"2024-04-12","desc":"Перевод","amount":210,"category":"Переводы","source":"demo"},
+        {"id":"demo-202404-02","date":"2024-04-30","desc":"GOOGLE | ЗАРПЛАТА 04.2024","amount":2390,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202404-3","date":"2024-04-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1450,"category":"Аренда","source":"demo"},
+        {"id":"demo-202404-04","date":"2024-04-09","desc":"SumUp EBAG.BG","amount":-270,"category":"Продукты","source":"demo"},
+        {"id":"demo-202404-05","date":"2024-04-18","desc":"TERA BURGER","amount":-78,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202404-06","date":"2024-04-21","desc":"SIS INVEST AUTO","amount":-85,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202404-07","date":"2024-04-23","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202404-08","date":"2024-04-26","desc":"YUZHEN PARK","amount":-70,"category":"Развлечения","source":"demo"},
+        {"id":"demo-202405-01","date":"2024-05-10","desc":"Перевод","amount":240,"category":"Переводы","source":"demo"},
+        {"id":"demo-202405-02","date":"2024-05-31","desc":"GOOGLE | ЗАРПЛАТА 05.2024","amount":2510,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202405-03","date":"2024-05-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1480,"category":"Аренда","source":"demo"},
+        {"id":"demo-202405-04","date":"2024-05-08","desc":"FANTASTICO GROUP LTD","amount":-300,"category":"Продукты","source":"demo"},
+        {"id":"demo-202405-05","date":"2024-05-15","desc":"SOHO CAFE","amount":-85,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202405-06","date":"2024-05-20","desc":"SIS INVEST AUTO","amount":-90,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202405-07","date":"2024-05-23","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202405-08","date":"2024-05-27","desc":"GORSKI KANTON","amount":-70,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202406-01","date":"2024-06-12","desc":"Перевод","amount":160,"category":"Переводы","source":"demo"},
+        {"id":"demo-202406-02","date":"2024-06-28","desc":"GOOGLE | ЗАРПЛАТА 06.2024","amount":2440,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202406-03","date":"2024-06-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1450,"category":"Аренда","source":"demo"},
+        {"id":"demo-202406-04","date":"2024-06-09","desc":"LIDL BALGARIYA EOOD","amount":-270,"category":"Продукты","source":"demo"},
+        {"id":"demo-202406-05","date":"2024-06-18","desc":"MA BAKER EOOD","amount":-80,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202406-06","date":"2024-06-21","desc":"SIS INVEST AUTO","amount":-90,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202406-07","date":"2024-06-24","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202406-08","date":"2024-06-26","desc":"KOKOLANDIA OOD","amount":-70,"category":"Развлечения","source":"demo"},
+        {"id":"demo-202407-01","date":"2024-07-10","desc":"Перевод","amount":300,"category":"Переводы","source":"demo"},
+        {"id":"demo-202407-02","date":"2024-07-31","desc":"GOOGLE | ЗАРПЛАТА 07.2024","amount":2590,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202407-03","date":"2024-07-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1490,"category":"Аренда","source":"demo"},
+        {"id":"demo-202407-04","date":"2024-07-07","desc":"SumUp EBAG.BG","amount":-300,"category":"Продукты","source":"demo"},
+        {"id":"demo-202407-05","date":"2024-07-14","desc":"GORSKI KANTON","amount":-96,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202407-06","date":"2024-07-21","desc":"SIS INVEST AUTO","amount":-85,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202407-07","date":"2024-07-23","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202408-01","date":"2024-08-08","desc":"Перевод","amount":180,"category":"Переводы","source":"demo"},
+        {"id":"demo-202408-02","date":"2024-08-30","desc":"GOOGLE | ЗАРПЛАТА 08.2024","amount":2460,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202408-03","date":"2024-08-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1480,"category":"Аренда","source":"demo"},
+        {"id":"demo-202408-04","date":"2024-08-08","desc":"FANTASTICO GROUP LTD","amount":-290,"category":"Продукты","source":"demo"},
+        {"id":"demo-202408-05","date":"2024-08-16","desc":"SOHO CAFE","amount":-88,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202408-06","date":"2024-08-21","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202408-07","date":"2024-08-22","desc":"SIS INVEST AUTO","amount":-75,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202409-01","date":"2024-09-09","desc":"Перевод","amount":200,"category":"Переводы","source":"demo"},
+        {"id":"demo-202409-02","date":"2024-09-30","desc":"GOOGLE | ЗАРПЛАТА 09.2024","amount":2620,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202409-03","date":"2024-09-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1500,"category":"Аренда","source":"demo"},
+        {"id":"demo-202409-04","date":"2024-09-05","desc":"LIDL BALGARIYA EOOD","amount":-300,"category":"Продукты","source":"demo"},
+        {"id":"demo-202409-05","date":"2024-09-18","desc":"MA BAKER EOOD","amount":-90,"category":"Кафе и рестораны","source":"demo"},
+        {"id":"demo-202409-06","date":"2024-09-22","desc":"SIS INVEST AUTO","amount":-80,"category":"Топливо и авто","source":"demo"},
+        {"id":"demo-202409-07","date":"2024-09-24","desc":"VIVACOM","amount":-22,"category":"Связь и интернет","source":"demo"},
+        {"id":"demo-202410-01","date":"2024-10-10","desc":"Перевод","amount":190,"category":"Переводы","source":"demo"},
+        {"id":"demo-202410-02","date":"2024-10-31","desc":"GOOGLE | ЗАРПЛАТА 10.2024","amount":2440,"category":"Зарплата","source":"demo"},
+        {"id":"demo-202410-03","date":"2024-10-06","desc":"ПЛАЩАНЕ ЗА НАЕМ","amount":-1480,"category":"Аренда","source":"demo"},
+        {"id":"demo-202410-04","date":"2024-10-06","desc":"FANTASTICO GROUP LTD","amount":-290,"category":"Продукты","source":"demo"},
+        {"id":"demo-202410-05","date":"2024-10-15","desc":"SOHO CAFE","amount":-88,"category":"Кафе и рестораны","source":"demo"}
+      ],
+      "adjustments": {},
+      "categories": [
+        "Продукты","Кафе и рестораны","Аптека и здоровье","Топливо и авто","Связь и интернет","Одежда и товары","Дом и быт","Развлечения","Красота","Игры и электроника","Зарплата","Аренда","Комиссии","Переводы","Путешествия"
+      ],
+      "catRules": [],
+      "createdAt": "2025-09-17T10:00:00.000Z",
+      "version": 1
+    };
+  }catch(_){}
+  try{
+    window.DEMO_CATS = {
+      "categories": [
+        "Продукты","Кафе и рестораны","Топливо и авто","Связь и интернет","Развлечения","Зарплата","Аренда","Переводы"
+      ],
+      "catRules": [
+        {"id":"r-demo-1","match":"google","category":"Зарплата"},
+        {"id":"r-demo-2","match":"перевод","category":"Переводы"},
+        {"id":"r-demo-3","match":"плащане за наем","category":"Аренда"},
+        {"id":"r-demo-4","match":"lidl","category":"Продукты"},
+        {"id":"r-demo-5","match":"fantastico","category":"Продукты"},
+        {"id":"r-demo-6","match":"ebag","category":"Продукты"},
+        {"id":"r-demo-7","match":"soho cafe","category":"Кафе и рестораны"},
+        {"id":"r-demo-8","match":"ma baker","category":"Кафе и рестораны"},
+        {"id":"r-demo-9","match":"gorski kanton","category":"Кафе и рестораны"},
+        {"id":"r-demo-10","match":"sis invest auto","category":"Топливо и авто"},
+        {"id":"r-demo-11","match":"vivacom","category":"Связь и интернет"},
+        {"id":"r-demo-12","match":"kamelot","category":"Развлечения"},
+        {"id":"r-demo-13","match":"yuzhen park","category":"Развлечения"},
+        {"id":"r-demo-14","match":"kokolandia","category":"Развлечения"},
+        {"id":"r-demo-15","match":"sumup ebag.bg","category":"Продукты"}
+      ]
+    };
+  }catch(_){}
+})();
+
+

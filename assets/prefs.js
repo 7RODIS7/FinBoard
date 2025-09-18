@@ -4,7 +4,17 @@
   const DEFAULT_PREFS = {
     theme: 'dark',
     preferredCurrency: 'BGN',
-    fx: { BGN_EUR: 1.949, BGN_USD: 1.773 }
+    fx: { BGN_EUR: 1.95583, BGN_USD: 1.65230 }
+  }
+  const LEGACY_DEFAULT_FX = { BGN_EUR: 1.949, BGN_USD: 1.773 }
+  function sanitizeFxRates(obj){
+    const d = DEFAULT_PREFS.fx
+    const eur = +((obj&&obj.BGN_EUR)!=null ? obj.BGN_EUR : d.BGN_EUR)
+    const usd = +((obj&&obj.BGN_USD)!=null ? obj.BGN_USD : d.BGN_USD)
+    return {
+      BGN_EUR: (Number.isFinite(eur) && eur>0.1 && eur<10) ? eur : d.BGN_EUR,
+      BGN_USD: (Number.isFinite(usd) && usd>0.1 && usd<10) ? usd : d.BGN_USD
+    }
   }
 
   function mergePrefs(a,b){
@@ -51,17 +61,27 @@
     try{ if(window.toast) toast(`Переключено на ${next==='dark'?'темную':'светлую'} тему`) }catch(_){ }
   }
 
-  function getFx(){
-    const fx = (get().fx)||{}
-    return { BGN_EUR: +fx.BGN_EUR || DEFAULT_PREFS.fx.BGN_EUR, BGN_USD: +fx.BGN_USD || DEFAULT_PREFS.fx.BGN_USD }
-  }
+  function getFx(){ return sanitizeFxRates((get().fx)||{}) }
+
+  function getFxDefaults(){ return { ...DEFAULT_PREFS.fx } }
+
+  // One-time migration: if stored FX equals legacy defaults, update to new defaults
+  try{
+    const cur = get()
+    const fx = cur && cur.fx || {}
+    const looksLegacy = (+fx.BGN_EUR === LEGACY_DEFAULT_FX.BGN_EUR) && (+fx.BGN_USD === LEGACY_DEFAULT_FX.BGN_USD)
+    if(looksLegacy){ set({ fx: { ...DEFAULT_PREFS.fx } }) }
+  }catch(_){ }
 
   function openModal(){
     const prefs = get()
-    const wrap=document.createElement('div')
-    wrap.style.position='fixed';wrap.style.inset='0';wrap.style.display='flex';wrap.style.alignItems='center';wrap.style.justifyContent='center';wrap.style.background='rgba(0,0,0,0.5)';wrap.style.zIndex='9998'
-    wrap.innerHTML = `<div class="card" style="width:min(520px,95vw)">
-      <h3 style="margin:0 0 8px 0">Настройки</h3>
+    const o=document.querySelector('#dashOverlay'), m=document.querySelector('#dashModal'), t=document.querySelector('#dashModalTitle'), c=document.querySelector('#dashModalContent')
+    if(!o||!m||!t||!c) return
+    const wrap = c
+    o.style.display='block'; m.style.display='block'
+    t.textContent = 'Настройки'
+    const rs=t.parentElement && t.parentElement.querySelector('.right'); if(rs) rs.innerHTML=''
+    c.innerHTML = `
       <div class="grid-sm">
         <div>
           <label>Тема</label>
@@ -78,11 +98,11 @@
         </div>
         <div>
           <label>Курс BGN→EUR</label>
-          <input id="prefBGN_EUR" type="number" step="0.0001" value="${(prefs.fx?.BGN_EUR ?? DEFAULT_PREFS.fx.BGN_EUR)}"/>
+          <input id="prefBGN_EUR" type="number" step="0.00001" min="0" value="${(prefs.fx?.BGN_EUR ?? DEFAULT_PREFS.fx.BGN_EUR)}"/>
         </div>
         <div>
           <label>Курс BGN→USD</label>
-          <input id="prefBGN_USD" type="number" step="0.0001" value="${(prefs.fx?.BGN_USD ?? DEFAULT_PREFS.fx.BGN_USD)}"/>
+          <input id="prefBGN_USD" type="number" step="0.00001" min="0" value="${(prefs.fx?.BGN_USD ?? DEFAULT_PREFS.fx.BGN_USD)}"/>
         </div>
       </div>
       <div class="hr"></div>
@@ -93,14 +113,9 @@
         <span class="right"></span>
         <button id="btnPrefsReset" class="warn">Сброс</button>
         <button id="btnPrefsSave" class="primary">Сохранить</button>
-        <button id="btnPrefsClose" class="btn">Закрыть</button>
-      </div>
-    </div>`
-    document.body.appendChild(wrap)
+      </div>`
+    const closeBtn=document.querySelector('#btnCloseDashModal'); if(closeBtn){ closeBtn.onclick=()=>{ try{ o.style.display='none'; m.style.display='none'; }catch(_){} } }
     const $ = (sel,root=document)=>root.querySelector(sel)
-    $('#btnPrefsClose',wrap).onclick=()=>wrap.remove()
-    wrap.addEventListener('click',(e)=>{ if(e.target===wrap) wrap.remove() })
-    window.addEventListener('keydown', function esc(e){ if(e.key==='Escape'){ try{wrap.remove()}catch(_){ } window.removeEventListener('keydown', esc) } })
 
     async function saveJsonFile(name, content){
       // Try modern Save File Picker
@@ -149,8 +164,9 @@
         try{
           $('#prefTheme',wrap).value = next.theme
           $('#prefCurrency',wrap).value = next.preferredCurrency
-          $('#prefBGN_EUR',wrap).value = String(next.fx?.BGN_EUR ?? DEFAULT_PREFS.fx.BGN_EUR)
-          $('#prefBGN_USD',wrap).value = String(next.fx?.BGN_USD ?? DEFAULT_PREFS.fx.BGN_USD)
+          const sfx = sanitizeFxRates(next.fx||{})
+          $('#prefBGN_EUR',wrap).value = String(sfx.BGN_EUR)
+          $('#prefBGN_USD',wrap).value = String(sfx.BGN_USD)
         }catch(_){ }
         // Notify listeners
         try{ window.dispatchEvent(new CustomEvent('prefsChanged',{detail: next})) }catch(_){ }
@@ -165,24 +181,28 @@
       try{
         $('#prefTheme',wrap).value = next.theme
         $('#prefCurrency',wrap).value = next.preferredCurrency
-        $('#prefBGN_EUR',wrap).value = String(next.fx?.BGN_EUR)
-        $('#prefBGN_USD',wrap).value = String(next.fx?.BGN_USD)
+        const sfx = sanitizeFxRates(next.fx||{})
+        $('#prefBGN_EUR',wrap).value = String(sfx.BGN_EUR)
+        $('#prefBGN_USD',wrap).value = String(sfx.BGN_USD)
       }catch(_){ }
       try{ window.dispatchEvent(new CustomEvent('prefsChanged',{detail: next})) }catch(_){ }
     }
 
     $('#btnPrefsSave',wrap).onclick=()=>{
+      const rawFx = { BGN_EUR: parseFloat($('#prefBGN_EUR',wrap)?.value)||DEFAULT_PREFS.fx.BGN_EUR, BGN_USD: parseFloat($('#prefBGN_USD',wrap)?.value)||DEFAULT_PREFS.fx.BGN_USD }
       const next = set({
         theme: $('#prefTheme',wrap)?.value||'dark',
         preferredCurrency: $('#prefCurrency',wrap)?.value||'BGN',
-        fx: { BGN_EUR: parseFloat($('#prefBGN_EUR',wrap)?.value)||DEFAULT_PREFS.fx.BGN_EUR, BGN_USD: parseFloat($('#prefBGN_USD',wrap)?.value)||DEFAULT_PREFS.fx.BGN_USD }
+        fx: sanitizeFxRates(rawFx)
       })
       initThemeFromPrefs()
       try{ if(window.toast) toast('Настройки сохранены') }catch(_){ }
       try{ window.dispatchEvent(new CustomEvent('prefsChanged',{detail: next})) }catch(_){ }
-      try{ wrap.remove() }catch(_){ }
+      // Close modal properly without removing the content container to allow reopening later
+      try{ o.style.display='none'; m.style.display='none' }catch(_){ }
+      try{ c.innerHTML='' }catch(_){ }
     }
   }
 
-  window.PREFS = { get, set, getFx, initThemeFromPrefs, toggleThemeByPrefs, openModal }
+  window.PREFS = { get, set, getFx, getFxDefaults, initThemeFromPrefs, toggleThemeByPrefs, openModal }
 })()

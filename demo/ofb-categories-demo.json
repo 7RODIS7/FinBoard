@@ -1,0 +1,31 @@
+{
+  "categories": [
+    "Продукты",
+    "Кафе и рестораны",
+    "Топливо и авто",
+    "Связь и интернет",
+    "Развлечения",
+    "Зарплата",
+    "Аренда",
+    "Переводы"
+  ],
+  "catRules": [
+    {"id":"r-demo-1","match":"google","category":"Зарплата"},
+    {"id":"r-demo-2","match":"перевод","category":"Переводы"},
+    {"id":"r-demo-3","match":"плащане за наем","category":"Аренда"},
+    {"id":"r-demo-4","match":"lidl","category":"Продукты"},
+    {"id":"r-demo-5","match":"fantastico","category":"Продукты"},
+    {"id":"r-demo-6","match":"ebag","category":"Продукты"},
+    {"id":"r-demo-7","match":"soho cafe","category":"Кафе и рестораны"},
+    {"id":"r-demo-8","match":"ma baker","category":"Кафе и рестораны"},
+    {"id":"r-demo-9","match":"gorski kanton","category":"Кафе и рестораны"},
+    {"id":"r-demo-10","match":"sis invest auto","category":"Топливо и авто"},
+    {"id":"r-demo-11","match":"vivacom","category":"Связь и интернет"},
+    {"id":"r-demo-12","match":"kamelot","category":"Развлечения"},
+    {"id":"r-demo-13","match":"yuzhen park","category":"Развлечения"},
+    {"id":"r-demo-14","match":"kokolandia","category":"Развлечения"},
+    {"id":"r-demo-15","match":"sumup ebag.bg","category":"Продукты"}
+  ]
+}
+
+

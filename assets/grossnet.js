@@ -7,16 +7,20 @@
   const monthNames=["Январь","Февраль","Март","Апрель","Май","Июнь","Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]
   const GN_LS_KEY = 'gn_state'
 
+  // Expose current display currency for charts tooltips
+  try{ window.getDisplayCurrency = function(){ try{ return document.getElementById('selCurrency').value }catch(_){ return 'BGN' } } }catch(_){ }
+
   function getFx(){
     try{ if(window.PREFS && PREFS.getFx){ return PREFS.getFx() } }catch(_){ }
-    return { BGN_EUR: 1.949, BGN_USD: 1.773 }
+    try{ if(window.PREFS && PREFS.getFxDefaults){ return PREFS.getFxDefaults() } }catch(_){ }
+    return { BGN_EUR: 1.95583, BGN_USD: 1.65230 }
   }
   function convertFromBGN(amountBGN, currency){
     if(!Number.isFinite(amountBGN)) amountBGN = 0
     const fx = getFx()
     switch(String(currency||'BGN')){
-      case 'EUR': return amountBGN / (fx.BGN_EUR||1.949)
-      case 'USD': return amountBGN / (fx.BGN_USD||1.773)
+      case 'EUR': return amountBGN / fx.BGN_EUR
+      case 'USD': return amountBGN / fx.BGN_USD
       default: return amountBGN
     }
   }
@@ -176,7 +180,7 @@
       setNum('inpMonthly', monthly)
       setNum('inpAnnual', monthly*12)
       // keep comparison current synced to annual-with-seniority for convenience
-      try{ const cur = (function(){ try{ return byId('selCurrency').value }catch(_){ return 'BGN' } })(); setNum('inpCmp1', convertFromBGN(target, cur)) }catch(_){ }
+      try{ setNum('inpCmp1', target) }catch(_){ }
       recalc()
     })
     // toggle option blocks
@@ -213,7 +217,7 @@
     // keep annual-with-seniority field in sync for convenience
     setNum('inpAnnualWithSen', annualGrossWithSeniority().toFixed(2))
     // sync comparison "Текущая" with annual-with-seniority
-    try{ const tgtBGN = parseFloat(byId('inpAnnualWithSen').value)||0; setNum('inpCmp1', convertFromBGN(tgtBGN, cur)) }catch(_){ }
+    try{ const tgtBGN = parseFloat(byId('inpAnnualWithSen').value)||0; setNum('inpCmp1', tgtBGN) }catch(_){ }
 
     const monthlyGross=numVal('inpMonthly')
     const staj=numVal('inpSeniority')
@@ -309,11 +313,7 @@
     $('#kGrossHour').textContent = `${fmtNum(convertFromBGN(grossHourWorkBGN, cur))} / ${fmtNum(convertFromBGN(grossHourCalendarBGN, cur))} ${cur}`
     $('#kNetHour').textContent   = `${fmtNum(convertFromBGN(netHourWorkBGN,   cur))} / ${fmtNum(convertFromBGN(netHourCalendarBGN,   cur))} ${cur}`
 
-    // Обновим подписи для сравнения под выбранную валюту
-    try{
-      const l1 = byId('inpCmp1').previousElementSibling; if(l1 && l1.tagName==='LABEL'){ l1.textContent = `Текущая (${cur})` }
-      const l2 = byId('inpCmp2').previousElementSibling; if(l2 && l2.tagName==='LABEL'){ l2.textContent = `Другая (${cur})` }
-    }catch(_){ }
+    // Секция сравнения всегда в BGN (подписи из HTML остаются неизменными)
 
     const c1=numVal('inpCmp1'), c2=numVal('inpCmp2')
     const diff = c2 - c1
@@ -324,10 +324,10 @@
     try{
       const c = document.getElementById('gnBar')
       if(c && typeof drawBarChart==='function'){
-        const labels=['Месяц','Год']
+        const labels=['Год','Месяц']
         const series=[
-          [ convertFromBGN(grossMonthBGN, cur), convertFromBGN(grossYearBGN, cur) ],
-          [ convertFromBGN(netMonthBGN, cur),   convertFromBGN(netYearBGN,   cur) ]
+          [ convertFromBGN(grossYearBGN, cur), convertFromBGN(grossMonthBGN, cur) ],
+          [ convertFromBGN(netYearBGN,   cur), convertFromBGN(netMonthBGN,   cur) ]
         ]
         drawBarChart(c, labels, series, ['Брутто','Нетто'])
       }

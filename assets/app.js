@@ -11,43 +11,42 @@ function renderOpsTable(){
 }
 
 function openAddModal(){
-  const wrap=document.createElement('div')
-  wrap.style.position='fixed';wrap.style.inset='0';wrap.style.display='flex';wrap.style.alignItems='center';wrap.style.justifyContent='center';wrap.style.background='rgba(0,0,0,0.5)';wrap.style.zIndex='9998'
-  wrap.innerHTML=`<div class="card" style="width:min(560px,90vw)">
-    <h3 style="margin:0 0 10px 0">Добавить запись</h3>
-    <div class="grid-sm">
+  const o=document.querySelector('#dashOverlay'), m=document.querySelector('#dashModal'), t=document.querySelector('#dashModalTitle'), c=document.querySelector('#dashModalContent')
+  if(!o||!m||!t||!c) return
+  o.style.display='block'; m.style.display='block'
+  t.textContent = 'Добавить запись'
+  const rs=t.parentElement && t.parentElement.querySelector('.right'); if(rs) rs.innerHTML=''
+  c.innerHTML=`<div class="grid-sm">
       <input id="addDate" type="date" value="${new Date().toISOString().slice(0,10)}" />
       <input id="addAmount" type="number" step="0.01" placeholder="Сумма (+ доход, − расход)" />
       <input id="addDesc" type="text" placeholder="Описание" />
       <select id="addCatSel"><option value="">(без категории)</option>${(STATE?.vault?.categories||[]).map(c=>`<option>${c}</option>`).join('')}</select>
     </div>
     <div class="hr"></div>
-    <div class="inline"><button id="addConfirm" class="primary">Добавить</button><button id="addCancel" class="btn">Отмена</button></div>
-  </div>`
-  document.body.appendChild(wrap)
-  // перехват ESC и клик по подложке
-  wrap.addEventListener('click',(e)=>{ if(e.target===wrap) wrap.remove() })
-  window.addEventListener('keydown', function esc(e){ if(e.key==='Escape'){ wrap.remove(); window.removeEventListener('keydown', esc) } })
-  $('#addCancel',wrap).onclick=()=>wrap.remove()
-  $('#addConfirm',wrap).onclick=()=>{
-    const d=$('#addDate',wrap).value
-    const a=parseFloat($('#addAmount',wrap).value)
-    const desc=$('#addDesc',wrap).value.trim()
-    const catSel=$('#addCatSel',wrap)
+    <div class="inline"><span class="right"></span><button id="addConfirm" class="primary">Добавить</button></div>`
+  const mEl=m
+  const closeBtn=document.querySelector('#btnCloseDashModal'); if(closeBtn){ closeBtn.onclick=()=>{ try{ o.style.display='none'; m.style.display='none'; }catch(_){} } }
+  document.querySelector('#addConfirm')?.addEventListener('click',()=>{
+    const d=document.querySelector('#addDate').value
+    const a=parseFloat(document.querySelector('#addAmount').value)
+    const desc=document.querySelector('#addDesc').value.trim()
+    const catSel=document.querySelector('#addCatSel')
     const cat=(catSel && catSel.value) ? catSel.value : null
     if(!d||!isFinite(a)){ toast('Введите дату и сумму','warn'); return }
     addManual({id:uid(),date:d,desc,amount:a,category:cat||null,source:'manual'})
-    saveVault(); render(); toast('Запись добавлена'); wrap.remove()
-  }
+    saveVault(); render(); toast('Запись добавлена'); try{ o.style.display='none'; mEl.style.display='none' }catch(_){}
+  })
 }
 
 // ===== КАТЕГОРИИ И ПРАВИЛА =====
 function openCategoriesModal(){
-  const wrap=document.createElement('div')
-  wrap.style.position='fixed';wrap.style.inset='0';wrap.style.display='flex';wrap.style.alignItems='center';wrap.style.justifyContent='center';wrap.style.background='rgba(0,0,0,0.5)';wrap.style.zIndex='9998'
+  const o=document.querySelector('#dashOverlay'), m=document.querySelector('#dashModal'), t=document.querySelector('#dashModalTitle'), c=document.querySelector('#dashModalContent')
+  if(!o||!m||!t||!c) return
+  o.style.display='block'; m.style.display='block'
+  t.textContent = 'Категории и правила'
+  const rs=t.parentElement && t.parentElement.querySelector('.right'); if(rs) rs.innerHTML=''
   const cats = STATE?.vault?.categories || []
-  wrap.innerHTML = `<div class="card" style="width:min(900px,95vw)">
-    <h3 style="margin:0 0 10px 0">Категории и правила</h3>
+  c.innerHTML = `
     <div class="grid-sm">
       <div>
         <label>Добавить категорию</label>
@@ -75,13 +74,13 @@ function openCategoriesModal(){
       </div>
     </div>
     <div class="hr"></div>
-    <div class="inline"><button id="btnImportCatsModal" class="btn">Импорт</button><button id="btnExportCatsModal" class="btn">Экспорт</button><span class="right"></span><button id="btnApplyRules" class="primary">Применить к существующим</button><button id="closeCats" class="btn">Закрыть</button><input id="inputImportCatsModal" type="file" accept="application/json,.json" class="hidden" /></div>
-  </div>`
-  document.body.appendChild(wrap)
+    <div class="inline"><button id="btnImportCatsModal" class="btn">Импорт</button><button id="btnExportCatsModal" class="btn">Экспорт</button><span class="right"></span><button id="btnApplyRules" class="primary">Применить к существующим</button><input id="inputImportCatsModal" type="file" accept="application/json,.json" class="hidden" /></div>
+  `
+  const closeBtn=document.querySelector('#btnCloseDashModal'); if(closeBtn){ closeBtn.onclick=()=>{ try{ o.style.display='none'; m.style.display='none'; }catch(_){} } }
 
   let selectedCat = (STATE.vault.categories||[])[0] || ''
   function refreshCatsTable(){
-    const body=$('#catsTableBody',wrap); if(!body) return
+    const body=$('#catsTableBody',c); if(!body) return
     const cats=STATE.vault.categories||[]
     const rules=STATE.vault.catRules||[]
     body.innerHTML = cats.map(c=>{
@@ -95,38 +94,36 @@ function openCategoriesModal(){
     $$('[data-del-cat]',body).forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); confirmDeleteCategoryWithRules(b.getAttribute('data-del-cat')); refreshCatsTable(); refreshRulesTable(); } })
   }
   function refreshRulesTable(){
-    const body=$('#rulesBody',wrap); if(!body) return
+    const body=$('#rulesBody',c); if(!body) return
     const rules=STATE.vault.catRules||[]
     const list = rules.filter(r=>r.category===selectedCat)
     body.innerHTML = list.map(r=>`<tr><td>${escapeHtml(r.match)}</td><td style="text-align:right"><button class="icon-btn" title="Удалить" data-del-rule="${r.id}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg></button></td></tr>`).join('')
     $$('[data-del-rule]',body).forEach(b=>{ b.onclick=()=>{ removeRule(b.getAttribute('data-del-rule')); refreshRulesTable(); refreshCatsTable(); saveVault(); render(); } })
   }
 
-  $('#closeCats',wrap).onclick=()=>wrap.remove()
-  wrap.addEventListener('click',(e)=>{ if(e.target===wrap) wrap.remove() })
-  window.addEventListener('keydown', function esc(e){ if(e.key==='Escape'){ wrap.remove(); window.removeEventListener('keydown', esc) } })
+  // esc/overlay already handled by common modal; no local close button
 
-  $('#btnAddCat',wrap).onclick=()=>{
-    const name=$('#newCatName',wrap).value.trim(); if(!name) return
-    addCategory(name); $('#newCatName',wrap).value=''; if(!selectedCat) selectedCat=name; refreshCatsTable(); refreshRulesTable(); saveVault(); render();
+  $('#btnAddCat',c).onclick=()=>{
+    const name=$('#newCatName',c).value.trim(); if(!name) return
+    addCategory(name); $('#newCatName',c).value=''; if(!selectedCat) selectedCat=name; refreshCatsTable(); refreshRulesTable(); saveVault(); render();
   }
-  $('#btnAddRule',wrap).onclick=()=>{
-    const m=$('#ruleMatch',wrap).value.trim(); const c=selectedCat
+  $('#btnAddRule',c).onclick=()=>{
+    const m=$('#ruleMatch',c).value.trim(); const c=selectedCat
     if(!m||!c){ toast('Выберите категорию и введите шаблон','warn'); return }
-    addRule(m,c); $('#ruleMatch',wrap).value=''; refreshRulesTable(); refreshCatsTable(); saveVault(); render();
+    addRule(m,c); $('#ruleMatch',c).value=''; refreshRulesTable(); refreshCatsTable(); saveVault(); render();
   }
-  $('#btnApplyRules',wrap).onclick=()=>{ applyCategoryRulesToAll(); saveVault(); render(); toast('Правила применены'); }
+  $('#btnApplyRules',c).onclick=()=>{ applyCategoryRulesToAll(); saveVault(); render(); toast('Правила применены'); }
 
   // Экспорт/импорт категорий внутри диалога
-  const btnExportCatsModal = $('#btnExportCatsModal', wrap)
+  const btnExportCatsModal = $('#btnExportCatsModal', c)
   if(btnExportCatsModal){
     btnExportCatsModal.onclick = () => {
       const payload = { categories: STATE.vault.categories||[], catRules: STATE.vault.catRules||[] }
       download(`ofb-categories-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(payload,null,2))
     }
   }
-  const inputImportCatsModal = $('#inputImportCatsModal', wrap)
-  const btnImportCatsModal = $('#btnImportCatsModal', wrap)
+  const inputImportCatsModal = $('#inputImportCatsModal', c)
+  const btnImportCatsModal = $('#btnImportCatsModal', c)
   if(btnImportCatsModal && inputImportCatsModal){
     btnImportCatsModal.onclick = () => inputImportCatsModal.click()
   }
