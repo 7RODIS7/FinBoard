@@ -251,7 +251,7 @@ function generateBuckets(range, kind){
   if(kind==='month'){
     let y=range.start.getFullYear(), m=range.start.getMonth()
     const yEnd=range.end.getFullYear(), mEnd=range.end.getMonth()
-    while(y<mEnd?true:(y===yEnd && m<=mEnd)){
+    while(y<yEnd?true:(y===yEnd && m<=mEnd)){
       const s=new Date(y,m,1)
       const e=endOfMonthDate(y,m)
       buckets.push({ label: `${y}-${String(m+1).padStart(2,'0')}`, start:s, end:e })
@@ -978,14 +978,28 @@ function bindMain(){
       const start12 = new Date(now.getFullYear(), now.getMonth()-11, 1)
       const end12 = new Date(now.getFullYear(), now.getMonth()+1, 0)
       const monthly = {}
+      function catMatchesForExpense(t){
+        const cat = t.category || ''
+        if(CAT_FILTER==='all') return true
+        if(CAT_FILTER==='__none__') return !cat
+        return cat === CAT_FILTER
+      }
       for(const t of STATE.vault.transactions){
         const d=new Date(t.date)
         if(d>=start12 && d<=end12){
           const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
           const slot = (monthly[mk]||(monthly[mk]={inc:0,exp:0,net:0}))
           const a=+t.amount||0
-          if(a>=0) slot.inc+=a; else slot.exp+=-a
-          slot.net+=a
+          if(a>=0){
+            slot.inc+=a
+            slot.net+=a
+          }else{
+            // Для среднего по расходам учитываем выбранную категорию
+            if(catMatchesForExpense(t)){
+              slot.exp+=-a
+              slot.net+=a
+            }
+          }
         }
       }
       const months12 = Object.keys(monthly).sort()

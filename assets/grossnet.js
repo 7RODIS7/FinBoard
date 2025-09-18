@@ -99,8 +99,8 @@
         insVal: parseFloat(byId('inpInsVal').value)||0,
         corr: byId('chkCorr').checked,
         corrVal: parseFloat(byId('inpCorrVal').value)||0,
-        cmp1: parseFloat(byId('inpCmp1').value)||0,
-        cmp2: parseFloat(byId('inpCmp2').value)||0
+        cmp1: (function(){ try{ const el=document.getElementById('inpCmp1'); return parseFloat(el && el.value)||0 }catch(_){ return 0 } })(),
+        cmp2: (function(){ try{ const el=document.getElementById('inpCmp2'); return parseFloat(el && el.value)||0 }catch(_){ return 0 } })()
       }
     }catch(_){ return null }
   }
@@ -161,7 +161,7 @@
   function setNum(id, v){ byId(id).value = String(v) }
 
   function bind(){
-    const ids=['inpMonthly','inpAnnual','inpSeniority','inpAnnualWithSen','selMonth','inpYear','selCurrency','chkSick','inpSickDays','chkOver','inpOverAmt','selOverType','chkSport','inpSportA','inpSportAVal','inpSportC','inpSportCVal','chkIns','inpInsCount','inpInsVal','chkCorr','inpCorrVal','inpCmp1','inpCmp2']
+    const ids=['inpMonthly','inpAnnual','inpSeniority','inpAnnualWithSen','selMonth','inpYear','selCurrency','chkSick','inpSickDays','chkOver','inpOverAmt','selOverType','chkSport','inpSportA','inpSportAVal','inpSportC','inpSportCVal','chkIns','inpInsCount','inpInsVal','chkCorr','inpCorrVal']
     ids.forEach(id=>{ const el=byId(id); el.oninput=recalc; el.onchange=recalc })
     // Keep PREFS.preferredCurrency in sync with header select
     try{ const sc = byId('selCurrency'); if(sc){ sc.addEventListener('change', ()=>{ try{ if(window.PREFS && PREFS.set){ PREFS.set({ preferredCurrency: sc.value }) } }catch(_){ } recalc() }) } }catch(_){ }
@@ -205,6 +205,8 @@
           setNum('inpMonthly', monthly); setNum('inpAnnual', monthly*12); recalc() } } }catch(_){ }
       }
     })
+    // Compare modal opener
+    try{ const btn=document.getElementById('btnOpenCompare'); if(btn){ btn.addEventListener('click', openCompareModal) } }catch(_){ }
   }
 
   function annualGrossWithSeniority(){
@@ -216,8 +218,6 @@
     const cur = (function(){ try{ return byId('selCurrency').value }catch(_){ return 'BGN' } })()
     // keep annual-with-seniority field in sync for convenience
     setNum('inpAnnualWithSen', annualGrossWithSeniority().toFixed(2))
-    // sync comparison "Текущая" with annual-with-seniority
-    try{ const tgtBGN = parseFloat(byId('inpAnnualWithSen').value)||0; setNum('inpCmp1', tgtBGN) }catch(_){ }
 
     const monthlyGross=numVal('inpMonthly')
     const staj=numVal('inpSeniority')
@@ -313,12 +313,20 @@
     $('#kGrossHour').textContent = `${fmtNum(convertFromBGN(grossHourWorkBGN, cur))} / ${fmtNum(convertFromBGN(grossHourCalendarBGN, cur))} ${cur}`
     $('#kNetHour').textContent   = `${fmtNum(convertFromBGN(netHourWorkBGN,   cur))} / ${fmtNum(convertFromBGN(netHourCalendarBGN,   cur))} ${cur}`
 
-    // Секция сравнения всегда в BGN (подписи из HTML остаются неизменными)
+    // Секция сравнения: трактуем значения как BGN; UI без указания валюты
 
-    const c1=numVal('inpCmp1'), c2=numVal('inpCmp2')
-    const diff = c2 - c1
-    const pct = c1!==0 ? (diff/c1)*100 : 0
-    byId('cmpDiff').textContent = `Разница: ${fmtNum(diff)} ${cur} (${fmtNum(pct)}%)`
+    try{
+      const c1El=document.getElementById('inpCmp1')
+      const c2El=document.getElementById('inpCmp2')
+      const diffEl=document.getElementById('cmpDiff')
+      if(c1El && c2El){
+        const c1=Math.max(0, parseFloat(c1El.value)||0)
+        const c2=Math.max(0, parseFloat(c2El.value)||0)
+        const diff=c2-c1
+        const pct=c1!==0 ? (diff/c1)*100 : 0
+        if(diffEl){ diffEl.textContent = `Разница: ${fmtNum(diff)} (${fmtNum(pct)}%)` }
+      }
+    }catch(_){ }
 
     // redraw bar chart: [Месяц, Год] Gross vs Net
     try{
@@ -335,6 +343,48 @@
 
     // Persist current state
     try{ const st = serializeState(); if(st) localStorage.setItem(GN_LS_KEY, JSON.stringify(st)) }catch(_){ }
+  }
+
+  function openCompareModal(){
+    try{
+      const o=document.getElementById('dashOverlay')
+      const m=document.getElementById('dashModal')
+      const t=document.getElementById('dashModalTitle')
+      const c=document.getElementById('dashModalContent')
+      if(!o||!m||!t||!c) return
+      t.textContent = 'Сравнение'
+      c.innerHTML = `
+        <div class="grid-sm">
+          <div>
+            <label>Текущая</label>
+            <input id="inpCmp1" type="number" step="0.01" min="0" value="0" />
+          </div>
+          <div>
+            <label>Другая</label>
+            <input id="inpCmp2" type="number" step="0.01" min="0" value="0" />
+          </div>
+        </div>
+        <div class="warnbox" style="margin-top:8px" id="cmpDiff"></div>
+      `
+      // Bind fresh fields to recalc
+      try{ const a=document.getElementById('inpCmp1'); if(a){ a.oninput=recalc; a.onchange=recalc } }catch(_){ }
+      try{ const b=document.getElementById('inpCmp2'); if(b){ b.oninput=recalc; b.onchange=recalc } }catch(_){ }
+      // Initialize defaults: current = annual-with-seniority; other = current + 5%
+      try{ 
+        const tgtBGN = parseFloat(byId('inpAnnualWithSen').value)||0; 
+        const a=document.getElementById('inpCmp1'); 
+        const b=document.getElementById('inpCmp2'); 
+        if(a){ a.value=String(tgtBGN.toFixed(2)) }
+        if(b){ b.value=String((tgtBGN*1.05).toFixed(2)) }
+      }catch(_){ }
+      // Show
+      o.style.display='block'; m.style.display='block'
+      // Wire close
+      try{ const closeBtn=document.getElementById('btnCloseDashModal'); if(closeBtn){ closeBtn.onclick = ()=>{ try{ o.style.display='none'; m.style.display='none' }catch(_){ } } } }catch(_){ }
+      o.onclick = ()=>{ try{ o.style.display='none'; m.style.display='none' }catch(_){ } }
+      // Compute initial diff
+      recalc()
+    }catch(_){ }
   }
 
   try{ setup() }catch(_){ document.addEventListener('DOMContentLoaded', setup) }

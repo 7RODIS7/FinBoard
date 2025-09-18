@@ -19,6 +19,7 @@
     function toggleHelp(){ HELP_VISIBLE=!HELP_VISIBLE; const helpToggle=$('#helpToggle'); const helpBlock=$('#helpBlock'); if(helpToggle){ helpToggle.classList.toggle('active', HELP_VISIBLE); helpToggle.title = HELP_VISIBLE?'Скрыть справку':'Показать справку' } if(helpBlock){ helpBlock.style.display = HELP_VISIBLE?'block':'none' } }
   </script>
   <script defer src="assets/grossnet.js"></script>
+  <script defer src="assets/salary-timer.js"></script>
   <style>
     .gn-section h2{margin:0 0 8px 0;font-size:16px}
     .gn-kpis{display:grid;gap:8px}
@@ -27,6 +28,11 @@
     .opt-toggles{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
     .opt-toggles .pill{justify-content:flex-start;padding:2px 8px;height:28px;font-size:13px;gap:6px}
     .opt-toggles .pill input[type="checkbox"]{margin:0 6px 0 0;transform:none}
+
+    /* GN page: allow cards to grow with content (override FinBoard fixed heights) */
+    .content.gn .row{align-items:start}
+    .content.gn .row.cols-2{grid-auto-rows:auto}
+    .content.gn .row .card{height:auto;max-height:none}
   </style>
 </head>
 <body>
@@ -54,7 +60,7 @@
     </button>
     <div id="settingsToggle" class="settings-toggle" title="Настройки"><span class="settings-icon">⚙️</span></div>
   </header>
-  <main class="content" style="grid-column:1 / -1">
+  <main class="content gn" style="grid-column:1 / -1">
     <div id="helpBlock" style="display:none"></div>
     <div class="row cols-2" style="margin-top:0">
       <div class="card">
@@ -63,11 +69,11 @@
           <div class="hr"></div>
           <div class="grid-sm">
             <div>
-              <label>Месячная з/п (gross)</label>
+              <label>Месячная з/п (gross BGN)</label>
               <input id="inpMonthly" type="number" step="0.01" value="1000" />
             </div>
             <div>
-              <label>Годовая з/п (gross)</label>
+              <label>Годовая з/п (gross BGN)</label>
               <input id="inpAnnual" type="number" step="0.01" value="12000" />
             </div>
             <div>
@@ -75,7 +81,7 @@
               <input id="inpSeniority" type="number" step="1" min="0" value="0" />
             </div>
             <div>
-              <label>Годовая (gross, с учетом стажа)</label>
+              <label class="inline">Годовая (gross BGN, с учетом стажа)<button id="btnOpenCompare" class="icon-btn" title="Сравнить">⚖️</button></label>
               <input id="inpAnnualWithSen" type="number" step="0.01" />
             </div>
             <div>
@@ -187,19 +193,7 @@
             <div class="pill">Час (рабочий / календарный)</div>
             <div class="pill"><b id="kNetHour"></b></div>
             <div class="pill"><b id="kGrossHour"></b></div>
-          </div>
-          <div class="hr"></div>
-          <div class="grid-sm">
-            <div>
-              <label>Текущая (gross)</label>
-              <input id="inpCmp1" type="number" value="12000" />
-            </div>
-            <div>
-              <label>Другая (gross)</label>
-              <input id="inpCmp2" type="number" value="12600" />
-            </div>
-          </div>
-          <div class="warnbox" style="margin-top:8px" id="cmpDiff"></div>
+          </div>          
         </div>
         <div class="hr"></div>
         <div class="controls"><b>График Gross vs Net</b><span class="right"></span></div>
@@ -240,10 +234,10 @@
               <li><b>Зарплата:</b> укажите месячную или годовую — вторая пересчитается автоматически. Поле «Годовая (с учетом стажа)» можно править — месячная пересчитается обратно.</li>
               <li><b>Стаж:</b> прибавка 0.6% за каждый год стажа автоматически влияет на брутто.</li>
               <li><b>Месяц/Год:</b> влияет на расчет рабочих/календарных дней (учтены болгарские праздники и православная Пасха).</li>
-              <li><b>Опции:</b> включайте нужные чекбоксы, тогда появятся связанные поля:
-                больничные: работодатель оплачивает только <b>первые 2 раб. дня по 70%</b> (не облагаются 10% НДФЛ, но входят в база за взносы); с 3‑го дня платит НОИ — не входит в payroll; овертайм (дни/часы ×2), Sport Card, страховка, корректировка.</li>
-              <li><b>Итоги:</b> показывается Нетто за месяц/год, а также за день/час (рабочий/календарный). Есть конверсия в EUR/USD.</li>
-              <li><b>Сравнение:</b> позволяет сравнить два значения и увидеть разницу в BGN и процентах.</li>
+              <li><b>Опции:</b> включайте нужные чекбоксы, тогда появятся связанные поля: больничные (работодатель оплачивает <b>первые 2 раб. дня по 70%</b> — эта сумма <b>не облагается 10% НДФЛ</b>, но входит в базу для взносов; с 3‑го дня платит НОИ), овертайм (дни/часы ×2), Sport Card, страховка, корректировка.</li>
+              <li><b>Итоги:</b> показывается Нетто и Брутто за месяц/год, а также за день/час (рабочий/календарный). Валюта отображения переключается вверху и влияет на KPI и график.</li>
+              <li><b>Сравнение:</b> <span title="Сравнить">⚖️</span> позволяет сравнить два значения и увидеть разницу в процентах и сумме. Ввод трактуется как <b>BGN</b> (валюта не указывается в диалоге).</li>
+              <li><b>Зарплатный секундомер:</b> кнопка <b>💸</b> в шапке. Считает «капание» Net/Gross в реальном времени за календарный/рабочий час, исходя из текущих параметров и выбранной валюты. Space — старт/стоп.</li>
             </ol>
             <div class="warnbox" style="margin-top:8px">
               Правила 2025: удержания работника 13.78% от осигурителна база; <b>cap 3750</b> до 03.2025 и <b>4130</b> с 04.2025; НДФЛ 10% от базы (без суммы за дни 1–2 по 70%). Овертайм ×2. Нетто не может быть отрицательным.
