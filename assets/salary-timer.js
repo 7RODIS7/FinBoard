@@ -105,8 +105,8 @@
             </div>
           </div>
           <div class="st-main" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;border:1px dashed var(--grid);border-radius:12px;background:var(--chip);height:100%">
-            <div id="stTime" style="font-size:32px;font-weight:800;letter-spacing:0.5px">00:00:00.000</div>
-            <div id="stEarn" style="font-size:24px;font-weight:800;margin-top:8px;color:var(--ok)">0.00</div>
+            <div id="stEarn" style="font-size:32px;font-weight:800;margin-top:0;color:var(--ok)">0.00</div>
+            <div id="stTime" style="font-size:18px;font-weight:800;letter-spacing:0.5px;margin-top:8px">00:00:00.000</div>
           </div>
         </div>
       </div>
