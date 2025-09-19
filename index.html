@@ -635,7 +635,7 @@ function applyCatRulesToAllTransactions(){
     for(const t of STATE.vault.transactions){
       const hay = [t.desc, t.trName, t.nameR, t.remI, t.remII].map(x=>String(x||'').toLowerCase()).join(' | ')
       const hit = rules.find(r=> r.match && hay.includes(r.match))
-      if(hit){ t.category = hit.category }
+      t.category = hit ? hit.category : null
     }
   }catch(_){ }
 }
@@ -769,7 +769,7 @@ function mainUI(){
               <span>Диапазон</span>
             </label>
           </div>
-          <div class="filter-params">
+          <div id="categoryFilterSection" class="filter-section" style="margin-top:8px">
             <div id="yearControls" class="filter-param-group">
               <select id="globalYear" class="filter-select"></select>
             </div>
@@ -838,24 +838,26 @@ function mainUI(){
               <span>День</span>
             </label>
           </div>
-          <label class="filter-label">Прогноз</label>
-          <div class="filter-mode-tabs">
-            <label class="filter-tab">
-              <input type="radio" name="forecastMode" value="off" ${ !(window.UI&&UI.forecast)?'checked':'' }>
-              <span>Выкл</span>
-            </label>
-            <label class="filter-tab">
-              <input type="radio" name="forecastMode" value="eoy" ${ (window.UI&&UI.forecast)?'checked':'' }>
-              <span>До конца периода</span>
-            </label>
-            <label class="filter-tab">
-              <input type="radio" name="forecastMode" value="avg12" ${ (window.UI&&UI.forecastMode==='avg12')?'checked':'' }>
-              <span>Ср. доход</span>
-            </label>
-            <label class="filter-tab">
-              <input type="radio" name="forecastMode" value="avg12both" ${ (window.UI&&UI.forecastMode==='avg12both')?'checked':'' }>
-              <span>Ср. доход / расход</span>
-            </label>
+          <div id="categoryFilterSection" class="filter-section" style="margin-top:8px">
+            <label class="filter-label">Прогноз</label>
+            <div class="filter-mode-tabs">
+              <label class="filter-tab">
+                <input type="radio" name="forecastMode" value="off" ${ !(window.UI&&UI.forecast)?'checked':'' }>
+                <span>Выкл</span>
+              </label>
+              <label class="filter-tab">
+                <input type="radio" name="forecastMode" value="eoy" ${ (window.UI&&UI.forecast)?'checked':'' }>
+                <span>До конца периода</span>
+              </label>
+              <label class="filter-tab">
+                <input type="radio" name="forecastMode" value="avg12" ${ (window.UI&&UI.forecastMode==='avg12')?'checked':'' }>
+                <span>Ср. доход</span>
+              </label>
+              <label class="filter-tab">
+                <input type="radio" name="forecastMode" value="avg12both" ${ (window.UI&&UI.forecastMode==='avg12both')?'checked':'' }>
+                <span>Ср. доход / расход</span>
+              </label>
+            </div>
           </div>
         </div>
       </div>
@@ -902,7 +904,7 @@ function mainUI(){
         <table>
           <thead><tr><th>Дата</th><th>Описание <button data-copy-desc="1" class="icon-btn" title="Скопировать описания (JSON)">📋</button></th><th>Категория</th><th style="text-align:right">Сумма</th><th></th></tr></thead>
           <tbody>
-            ${recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
+            ${recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?`<button class=\"btn-small\" title=\"Редактировать категорию\" data-edit-cat-cat=\"${escapeHtml(t.category)}\">✎</button> ${escapeHtml(t.category)}`:`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')}
           </tbody>
         </table>
       </div>
@@ -1262,11 +1264,13 @@ function bindMain(){
     const curr = STATE.vault.currency
     const tbody = $('#main .table-scroll tbody')
     if(tbody) {
-      tbody.innerHTML = recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?escapeHtml(t.category):`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
+      tbody.innerHTML = recent.map(t=>`<tr title="${(()=>{const a=[]; if(t.trName) a.push('TR_NAME: '+escapeHtml(t.trName)); if(t.nameR) a.push('NAME_R: '+escapeHtml(t.nameR)); if(t.remI) a.push('REM_I: '+escapeHtml(t.remI)); if(t.remII) a.push('REM_II: '+escapeHtml(t.remII)); return a.join('\\n');})()}"><td>${dateFmt.format(new Date(t.date))}</td><td>${escapeHtml(t.desc||'')}</td><td>${t.category?`<button class=\"btn-small\" title=\"Редактировать категорию\" data-edit-cat-cat=\"${escapeHtml(t.category)}\">✎</button> ${escapeHtml(t.category)}`:`<button class=\"btn-small\" title=\"Назначить категорию\" data-edit-cat=\"${t.id}\">✎</button>`}</td><td style=\"text-align:right;color:${t.amount>=0?'var(--ok)':'var(--danger)'}\">${formatAmountDisplay(t.amount)}</td><td style=\"width:32px;text-align:right;\">${t.source==='manual'?`<button class=\"btn-small\" data-del-tx=\"${t.id}\">🗑</button>`:''}</td></tr>`).join('')
         // Переназначаем обработчики удаления
         $$('[data-del-tx]', tbody).forEach(b=>{ b.onclick=()=>{ deleteManualTx(b.getAttribute('data-del-tx')) } })
         // Инлайн редактор категории
         $$('[data-edit-cat]', tbody).forEach(b=>{ b.onclick=()=> openQuickCategoryDialog(b.getAttribute('data-edit-cat')) })
+        // Карандаш рядом с категорией: открыть модал категорий с предвыбором
+        $$('[data-edit-cat-cat]', tbody).forEach(b=>{ b.onclick=()=>{ const cat=b.getAttribute('data-edit-cat-cat'); if(typeof openCategoriesModal==='function'){ openCategoriesModal(cat) } } })
         // Обновляем счётчик "из y"
         const totalEl = $('#recentTotalCount')
         if(totalEl) totalEl.textContent = String(allSearched.length)
@@ -1557,6 +1561,8 @@ function bindMain(){
 
   // Инлайн назначение категории для пустых
   $$('[data-edit-cat]').forEach(btn=>{ btn.onclick = ()=> openQuickCategoryDialog(btn.getAttribute('data-edit-cat')) })
+  // Карандаш рядом с категорией: открыть модал категорий с предвыбором
+  $$('[data-edit-cat-cat]').forEach(btn=>{ btn.onclick = ()=>{ const cat = btn.getAttribute('data-edit-cat-cat'); if(typeof openCategoriesModal==='function'){ openCategoriesModal(cat) } } })
 }
 
 function openStatementsModal(){
