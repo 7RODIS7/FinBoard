@@ -1980,6 +1980,108 @@ function previewXml(xmlText){
     return {count:0} 
   }
 }
+// Нормализация поломанных XML (TRANSACTION)
+// Normalization START
+function normalizeBrokenXmlIfNeeded(doc){
+  try{
+    const A=(x)=>Array.from(x||[]);
+    const EQ=(a,b)=>String(a||'').toUpperCase()===String(b||'').toUpperCase();
+    const child=(n,t)=>A(n.children).find(el=>EQ(el.tagName,t))||null;
+    const text=(n,t)=>{const el=child(n,t);return el&&el.textContent?el.textContent.trim():''};
+    const set=(tx,t,v)=>{let el=child(tx,t);if(!el){el=doc.createElement(t);tx.appendChild(el)}el.textContent=String(v==null?'':v).trim();return el};
+    const rmByRx=(tx,rx)=>{A(tx.children).forEach(el=>{if(rx.test(el.tagName)) tx.removeChild(el)})};
+    const insAfter=(p,el,ref)=>{if(!ref){p.appendChild(el);return}const n=ref.nextSibling;n?p.insertBefore(el,n):p.appendChild(el)};
+
+    const txs=[].concat(A(doc.getElementsByTagName('TRANSACTION')),A(doc.getElementsByTagName('transaction')));
+    if(!txs.length) return;
+
+    const isBroken=(tx)=>{
+      const kids=A(tx.children);
+      const iD=kids.findIndex(el=>/^(AMOUNT_D|DEBITAMOUNT)$/i.test(el.tagName));
+      const iC=kids.findIndex(el=>/^(AMOUNT_C|CREDITAMOUNT)$/i.test(el.tagName));
+      const hD=iD>=0,hC=iC>=0;
+      return (hD&&hC)||(!hD&&!hC);
+    };
+
+    const fileBroken=txs.some(isBroken);
+    if(!fileBroken) return;
+
+    for(const tx of txs){
+      if(!isBroken(tx)) continue;
+
+      const kids=A(tx.children);
+      const iD=kids.findIndex(el=>/^(AMOUNT_D|DEBITAMOUNT)$/i.test(el.tagName));
+      const iC=kids.findIndex(el=>/^(AMOUNT_C|CREDITAMOUNT)$/i.test(el.tagName));
+      const hD=iD>=0,hC=iC>=0;
+
+      const origREM_I=text(tx,'REM_I');
+      const origDATETRANS=text(tx,'DATETRANS');
+      const origBIC=text(tx,'BIC_R');
+      const origDATEVAL=text(tx,'DATEVAL');
+
+      if(hD&&hC){
+        const val=(kids[iD].textContent||'').trim().replace(',', '.');
+        rmByRx(tx,/^(AMOUNT_D|DEBITAMOUNT|AMOUNT_C|CREDITAMOUNT)$/i);
+        const amt=doc.createElement('AMOUNT_D'); amt.textContent=val;
+        insAfter(tx,amt,child(tx,'TIME'));
+      }else if(!hD&&!hC){
+        let val='';
+        const tr0=text(tx,'TR_NAME');
+        let m=String(tr0||'').match(/-?\d+(?:[.,]\d+)?/);
+        if(m) val=m[0];
+        if(!val){
+          const m2=text(tx,'MORE2');
+          m=String(m2||'').match(/-([0-9]+(?:[.,]\d+)?)-BGN/i);
+          if(m) val=m[1];
+        }
+        if(val){
+          val=String(val).replace(',', '.').trim();
+          const amt=doc.createElement('AMOUNT_C'); amt.textContent=val;
+          insAfter(tx,amt,child(tx,'TIME'));
+        }
+      }
+
+      const fromTrName = origREM_I || origDATETRANS || 'КАРТОВА ТРАНЗАКЦИЯ';
+      set(tx,'TR_NAME',fromTrName);
+
+      if(origBIC) set(tx,'REM_I',origBIC); else { const rmi=child(tx,'REM_I'); if(rmi) try{ tx.removeChild(rmi) }catch(_){ } }
+
+      const rem2=child(tx,'REM_II'); if(rem2) try{ tx.removeChild(rem2) }catch(_){ }
+
+      if(origDATEVAL) set(tx,'REFERENCE',origDATEVAL);
+
+      rmByRx(tx,/^(BIC_R|DATETRANS|DATEVAL|MORE\d{1,2})$/i);
+
+      const amtNode=child(tx,'AMOUNT_D')||child(tx,'AMOUNT_C')||null;
+      const desired=['POST_DATE','TIME'].concat(amtNode?[amtNode.tagName]:[],'TR_NAME','REM_I','REFERENCE');
+      const keep=new Set(desired.map(s=>s.toUpperCase()));
+
+      A(tx.children).forEach(el=>{ if(!keep.has(el.tagName.toUpperCase())) tx.removeChild(el) });
+
+      const map={}; desired.forEach(t=>map[t.toUpperCase()]=child(tx,t));
+      const seq=[];
+      desired.forEach(t=>{
+        const el=map[t.toUpperCase()];
+        if(!el) return;
+        const v=(el.textContent||'').trim();
+        if(!v && (t==='REM_I' || t==='REFERENCE')){ try{ tx.removeChild(el) }catch(_){ } return }
+        try{ tx.removeChild(el) }catch(_){ }
+        seq.push(el);
+      });
+      seq.forEach(el=>tx.appendChild(el));
+    }
+    // После нормализации: скопировать результат в буфер обмена для проверки
+    try{
+      const xmlText = new XMLSerializer().serializeToString(doc)
+      if(navigator && navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(xmlText)
+          .then(()=>{ try{ toast('Нормализованный XML скопирован в буфер') }catch(_){ } })
+          .catch(()=>{ try{ toast('Не удалось скопировать XML','warn') }catch(_){ } })
+      }
+    }catch(_){ }
+  }catch(e){}
+}
+// Normalization END
 function parseXmlTransactions(xmlText){
   
   // Приведём возможный BOM/кодировку: поддержка UTF-16LE/BE и UTF-8
@@ -1995,6 +2097,8 @@ function parseXmlTransactions(xmlText){
   if(parserErr) {
     throw new Error('XML parse error');
   }
+  // Нормализуем поломанные TRANSACTION (если обнаружены)
+  try{ normalizeBrokenXmlIfNeeded(doc) }catch(_){ }
   // Нормализуем имена: приведём к нижнему регистру
   function tagsLower(arr){ return arr.map(s=>String(s).toLowerCase()) }
   const amountTags = tagsLower(['amount','amt','sum','value','transactionamount','creditamount','debitamount','entryamount','bookedamount','instructedamount','amount_c','amount_d','ценность','сумма','AMOUNT_C','AMOUNT_D'])
@@ -2070,16 +2174,16 @@ function parseXmlTransactions(xmlText){
     const remII  = getTagText(n,'REM_II')
     const reference = getTagText(n,'REFERENCE')
     const genericTrNames = new Set(['КАРТОВА ТРАНЗАКЦИЯ','ТАКСА МЕЖДУБ.ПРЕВОД','ТАКСА ИЗХ. ВАЛУТЕН ПРЕВОД','ИЗХОДЯЩ ВАЛУТЕН ПРЕВОД СЕПА','ИЗХОДЯЩ ПРЕВОД В ЛВ','ПРЕВОД','ТАКСА ОБСЛУЖВАНЕ'])
+    const preferTrName = (trName && trName.trim() && trName.trim().toUpperCase() !== 'КАРТОВА ТРАНЗАКЦИЯ') ? trName.trim() : ''
     const parts=[]
+    if(preferTrName) parts.push(preferTrName)
     if(nameR) parts.push(nameR)
     if(remII && !isTechnicalCode(remII)) parts.push(remII)
     if(remI && !isTechnicalCode(remI)) parts.push(remI)
-    // TR_NAME не включаем в описание; используем как доп. информацию в тултипах
     let desc = parts.filter(Boolean).join(' | ')
-    if(!desc){
-      // Фолбэк: reference или пусто; TR_NAME не используем для описания
-      desc = reference || ''
-    }
+    // Больше не используем REFERENCE как фолбэк для описания
+    desc = String(desc).trim()
+    if(!desc && trName){ desc = trName.trim() }
     const curr = amtObj.currency || getFirstText(n, currencyTags) || (amtObj.node && (amtObj.node.getAttribute('ccy')||amtObj.node.getAttribute('currency')||amtObj.node.getAttribute('curr')));
     if(curr && !detectedCurrency) detectedCurrency = String(curr).trim().toUpperCase();
     txs.push({id:uid(),date:d.toISOString().slice(0,10),desc:String(desc).trim(),amount:amt,category:null,source:'import',trName: trName || null, nameR: nameR || null, remI: remI || null, remII: remII || null});
