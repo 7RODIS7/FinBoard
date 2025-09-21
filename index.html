@@ -2040,22 +2040,26 @@ function normalizeBrokenXmlIfNeeded(doc){
           insAfter(tx,amt,child(tx,'TIME'));
         }
       }
-
-      const fromTrName = origREM_I || origDATETRANS || 'КАРТОВА ТРАНЗАКЦИЯ';
-      set(tx,'TR_NAME',fromTrName);
+	  const defaultTrName = 'КАРТОВА ТРАНЗАКЦИЯ';
+      const nameSource = origREM_I ? 'REM_I' : (origDATETRANS ? 'DATETRANS' : null);
+      const trName = nameSource==='REM_I' ? origREM_I : (nameSource==='DATETRANS' ? origDATETRANS : defaultTrName);      
 
       if(origBIC) set(tx,'REM_I',origBIC); else { const rmi=child(tx,'REM_I'); if(rmi) try{ tx.removeChild(rmi) }catch(_){ } }
 
-      const rem2=child(tx,'REM_II'); if(rem2) try{ tx.removeChild(rem2) }catch(_){ }
+      if(trName===defaultTrName){
+        const r2=child(tx,'REM_II'); if(r2) try{ tx.removeChild(r2) }catch(_){}
+      }else{
+        if(nameSource) set(tx,'REM_II', trName);
+      }
+      set(tx,'TR_NAME',defaultTrName);
 
       if(origDATEVAL) set(tx,'REFERENCE',origDATEVAL);
 
       rmByRx(tx,/^(BIC_R|DATETRANS|DATEVAL|MORE\d{1,2})$/i);
 
       const amtNode=child(tx,'AMOUNT_D')||child(tx,'AMOUNT_C')||null;
-      const desired=['POST_DATE','TIME'].concat(amtNode?[amtNode.tagName]:[],'TR_NAME','REM_I','REFERENCE');
+      const desired=['POST_DATE','TIME'].concat(amtNode?[amtNode.tagName]:[],'TR_NAME','REM_I','REM_II','REFERENCE');
       const keep=new Set(desired.map(s=>s.toUpperCase()));
-
       A(tx.children).forEach(el=>{ if(!keep.has(el.tagName.toUpperCase())) tx.removeChild(el) });
 
       const map={}; desired.forEach(t=>map[t.toUpperCase()]=child(tx,t));
@@ -2064,7 +2068,7 @@ function normalizeBrokenXmlIfNeeded(doc){
         const el=map[t.toUpperCase()];
         if(!el) return;
         const v=(el.textContent||'').trim();
-        if(!v && (t==='REM_I' || t==='REFERENCE')){ try{ tx.removeChild(el) }catch(_){ } return }
+        if(!v && (t==='REM_I' || t==='REM_II' || t==='REFERENCE')){ try{ tx.removeChild(el) }catch(_){ } return }
         try{ tx.removeChild(el) }catch(_){ }
         seq.push(el);
       });
